@@ -565,6 +565,14 @@ searchInput.addEventListener('input', (e) => {
     searchTimeout = setTimeout(() => doSearch(e.target.value), 300);
 });
 
+searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+        doSearch(searchInput.value);
+    }
+});
+
 syncBtn.addEventListener('click', triggerSync);
 sortBtn.addEventListener('click', toggleSort);
 scrollTopBtn.addEventListener('click', () => content.scrollTo({ top: 0 }));
