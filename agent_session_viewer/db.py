@@ -66,6 +66,8 @@ def init_db():
                 started_at TEXT,
                 ended_at TEXT,
                 message_count INTEGER DEFAULT 0,
+                file_size INTEGER,
+                file_hash TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -117,6 +119,21 @@ def session_exists(session_id: str) -> bool:
         return row is not None
 
 
+def get_session_file_info(session_id: str) -> Optional[tuple[int, str]]:
+    """Get stored file size and hash for a session.
+
+    Returns:
+        Tuple of (file_size, file_hash) or None if not found
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT file_size, file_hash FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row and row["file_size"] is not None:
+            return (row["file_size"], row["file_hash"])
+        return None
+
+
 def upsert_session(
     session_id: str,
     project: str,
@@ -125,20 +142,24 @@ def upsert_session(
     started_at: Optional[str] = None,
     ended_at: Optional[str] = None,
     message_count: int = 0,
+    file_size: Optional[int] = None,
+    file_hash: Optional[str] = None,
 ):
     """Insert or update a session."""
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO sessions (id, project, machine, first_message, started_at, ended_at, message_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sessions (id, project, machine, first_message, started_at, ended_at, message_count, file_size, file_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project = excluded.project,
                 machine = excluded.machine,
                 first_message = excluded.first_message,
                 started_at = excluded.started_at,
                 ended_at = excluded.ended_at,
-                message_count = excluded.message_count
-        """, (session_id, project, machine, first_message, started_at, ended_at, message_count))
+                message_count = excluded.message_count,
+                file_size = excluded.file_size,
+                file_hash = excluded.file_hash
+        """, (session_id, project, machine, first_message, started_at, ended_at, message_count, file_size, file_hash))
 
 
 def delete_session_messages(session_id: str):

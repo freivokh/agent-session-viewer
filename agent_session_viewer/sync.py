@@ -1,5 +1,6 @@
 """Sync sessions from local Claude Code projects."""
 
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -9,6 +10,15 @@ import fnmatch
 
 from . import db
 from .parser import parse_session, iter_project_sessions
+
+
+def compute_file_hash(path: Path) -> str:
+    """Compute MD5 hash of a file."""
+    hasher = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 # Where Claude Code stores sessions
 CLAUDE_PROJECTS_DIR = Path(os.environ.get(
@@ -64,7 +74,9 @@ def sync_session_file(
     force: bool = False,
 ) -> Optional[dict]:
     """
-    Sync a single session file.
+    Sync a single session file using smart incremental sync.
+
+    Skips processing if file size and hash match stored values.
 
     Returns:
         Session metadata dict if synced, None if skipped
@@ -75,26 +87,38 @@ def sync_session_file(
     if session_id.startswith("agent-"):
         return None
 
-    # Target path
+    # Get source file info
+    source_size = source_path.stat().st_size
+
+    # Check if file has changed using size + hash
+    stored_info = db.get_session_file_info(session_id)
+    if stored_info and not force:
+        stored_size, stored_hash = stored_info
+        if stored_size == source_size:
+            # Size matches, check hash
+            source_hash = compute_file_hash(source_path)
+            if source_hash == stored_hash:
+                # File unchanged, skip entirely
+                return {
+                    "session_id": session_id,
+                    "project": project_name,
+                    "skipped": True,
+                    "messages": 0,
+                }
+
+    # File is new or changed - compute hash if not already done
+    source_hash = compute_file_hash(source_path)
+
+    # Copy to local storage
     target_dir = SESSIONS_DIR / project_name
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / source_path.name
-
-    # Check if we need to copy
-    should_copy = force or not target_path.exists()
-    if not should_copy and target_path.exists():
-        # Copy if source is newer
-        source_mtime = source_path.stat().st_mtime
-        target_mtime = target_path.stat().st_mtime
-        should_copy = source_mtime > target_mtime
-
-    if should_copy:
-        shutil.copy2(source_path, target_path)
+    shutil.copy2(source_path, target_path)
 
     # Parse and index
     metadata, messages = parse_session(target_path, project_name, machine)
 
-    # Update database
+    # Update database with file info
     db.upsert_session(
         session_id=metadata.session_id,
         project=metadata.project,
@@ -103,23 +127,23 @@ def sync_session_file(
         started_at=metadata.started_at,
         ended_at=metadata.ended_at,
         message_count=metadata.message_count,
+        file_size=source_size,
+        file_hash=source_hash,
     )
 
-    # Re-index messages if file was copied or messages are missing from db
-    existing_msg_count = db.get_message_count(session_id)
-    if should_copy or existing_msg_count == 0:
-        db.delete_session_messages(session_id)
-        if messages:
-            batch = [
-                (session_id, m.msg_id, m.role, m.content, m.timestamp)
-                for m in messages
-            ]
-            db.insert_messages_batch(batch)
+    # Re-index messages
+    db.delete_session_messages(session_id)
+    if messages:
+        batch = [
+            (session_id, m.msg_id, m.role, m.content, m.timestamp)
+            for m in messages
+        ]
+        db.insert_messages_batch(batch)
 
     return {
         "session_id": session_id,
         "project": project_name,
-        "copied": should_copy,
+        "skipped": False,
         "messages": len(messages),
     }
 
@@ -154,10 +178,10 @@ def sync_project(project_dir: Path, machine: str = "local", on_progress=None) ->
         msg_count = 0
         if result:
             msg_count = result.get("messages", 0)
-            if result["copied"]:
-                stats["synced"] += 1
-            else:
+            if result.get("skipped"):
                 stats["skipped"] += 1
+            else:
+                stats["synced"] += 1
 
         if on_progress:
             on_progress("session_done", messages=msg_count)

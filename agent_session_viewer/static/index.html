@@ -187,7 +187,17 @@
             font-size: 0.75rem;
             color: var(--text-muted);
             display: flex;
-            gap: 8px;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .session-meta .project-name {
+            color: var(--agent-accent);
+            font-weight: 500;
+        }
+
+        .session-meta .meta-sep {
+            opacity: 0.5;
         }
 
         .badge {
@@ -195,11 +205,6 @@
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 0.7rem;
-        }
-
-        .badge.agent-claude {
-            background: #6b4c9a;
-            color: #e6edf3;
         }
 
         /* Content area */
@@ -693,9 +698,10 @@
                     data-id="${s.id}">
                     <div class="session-title">${escapeHtml(s.first_message || 'No message')}</div>
                     <div class="session-meta">
-                        <span class="badge agent-claude">Claude</span>
-                        <span class="badge">${s.project}</span>
+                        <span class="project-name">${s.project}</span>
+                        <span class="meta-sep">·</span>
                         <span>${s.message_count} msgs</span>
+                        <span class="meta-sep">·</span>
                         <span>${formatDate(s.started_at)}</span>
                     </div>
                 </li>
