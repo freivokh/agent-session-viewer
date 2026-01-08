@@ -54,9 +54,13 @@ content = re.sub(r'^version = \".*\"', f'version = \"$VERSION\"', content, flags
 p.write_text(content)
 "
 
-# Commit version bump
+# Commit version bump (only if changed)
 git add pyproject.toml
-git commit -m "Bump version to $VERSION"
+if ! git diff --cached --quiet; then
+    git commit -m "Bump version to $VERSION"
+else
+    echo "Version already at $VERSION, skipping commit"
+fi
 
 # Generate changelog
 CHANGELOG_FILE=$(mktemp)
