@@ -30,7 +30,6 @@ fn main() {
     let state = AppState { db: Arc::new(db) };
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::get_sessions,

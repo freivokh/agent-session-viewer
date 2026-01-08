@@ -27,12 +27,13 @@ fn parse_timestamp(ts: &str) -> Option<DateTime<Utc>> {
         })
 }
 
-/// Create a message ID from timestamp.
+/// Create a message ID from timestamp and index.
+/// Always includes index to ensure uniqueness even with same timestamps.
 fn make_msg_id(ts: &str, index: usize) -> String {
     if ts.is_empty() {
         format!("msg-{}", index)
     } else {
-        format!("msg-{}", ts.replace([':', '.'], "-"))
+        format!("msg-{}-{}", ts.replace([':', '.'], "-"), index)
     }
 }
 
@@ -550,8 +551,24 @@ mod tests {
 
     #[test]
     fn test_make_msg_id() {
-        assert_eq!(make_msg_id("2026-01-08T10:00:00.123Z", 0), "msg-2026-01-08T10-00-00-123Z");
+        // With timestamp, includes index for uniqueness
+        assert_eq!(make_msg_id("2026-01-08T10:00:00.123Z", 0), "msg-2026-01-08T10-00-00-123Z-0");
+        assert_eq!(make_msg_id("2026-01-08T10:00:00.123Z", 1), "msg-2026-01-08T10-00-00-123Z-1");
+        // Without timestamp, uses only index
         assert_eq!(make_msg_id("", 5), "msg-5");
+    }
+
+    #[test]
+    fn test_make_msg_id_same_timestamp_uniqueness() {
+        // Same timestamp with different indices should produce different IDs
+        let ts = "2026-01-08T10:00:00.000Z";
+        let id1 = make_msg_id(ts, 0);
+        let id2 = make_msg_id(ts, 1);
+        let id3 = make_msg_id(ts, 2);
+
+        assert_ne!(id1, id2);
+        assert_ne!(id2, id3);
+        assert_ne!(id1, id3);
     }
 
     #[test]
