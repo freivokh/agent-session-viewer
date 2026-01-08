@@ -188,3 +188,59 @@ class TestFindCodexSourceFile:
         with patch.object(sync, "CODEX_SESSIONS_DIR", nonexistent):
             result = sync._find_codex_source_file("019b9da7-1f41-7af2-80d9-6e293902fea8")
             assert result is None
+
+
+class TestCodexExecFiltering:
+    """Tests for filtering non-interactive Codex sessions."""
+
+    def test_skip_codex_exec_by_default(self, tmp_path):
+        """Sessions with originator=codex_exec should be skipped by default."""
+        from agent_session_viewer.parser import parse_codex_session
+
+        session_file = tmp_path / "test.jsonl"
+        session_file.write_text(
+            '{"type":"session_meta","payload":{"id":"test-id","cwd":"/test","originator":"codex_exec"}}\n'
+        )
+
+        metadata, messages = parse_codex_session(session_file)
+        assert metadata is None
+        assert messages == []
+
+    def test_include_codex_exec_when_flag_set(self, tmp_path):
+        """Sessions with originator=codex_exec should be included when include_exec=True."""
+        from agent_session_viewer.parser import parse_codex_session
+
+        session_file = tmp_path / "test.jsonl"
+        session_file.write_text(
+            '{"type":"session_meta","payload":{"id":"test-id","cwd":"/test","originator":"codex_exec"}}\n'
+        )
+
+        metadata, messages = parse_codex_session(session_file, include_exec=True)
+        assert metadata is not None
+        assert metadata.session_id == "codex:test-id"
+
+    def test_include_interactive_sessions(self, tmp_path):
+        """Interactive sessions (codex_cli_rs) should be included."""
+        from agent_session_viewer.parser import parse_codex_session
+
+        session_file = tmp_path / "test.jsonl"
+        session_file.write_text(
+            '{"type":"session_meta","payload":{"id":"test-id","cwd":"/test","originator":"codex_cli_rs"}}\n'
+        )
+
+        metadata, messages = parse_codex_session(session_file)
+        assert metadata is not None
+        assert metadata.session_id == "codex:test-id"
+
+    def test_missing_originator_included(self, tmp_path):
+        """Sessions without originator field should be included."""
+        from agent_session_viewer.parser import parse_codex_session
+
+        session_file = tmp_path / "test.jsonl"
+        session_file.write_text(
+            '{"type":"session_meta","payload":{"id":"test-id","cwd":"/test"}}\n'
+        )
+
+        metadata, messages = parse_codex_session(session_file)
+        assert metadata is not None
+        assert metadata.session_id == "codex:test-id"
