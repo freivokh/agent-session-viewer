@@ -502,7 +502,8 @@ async function loadSession(id, scrollToMsg = null) {
     if (scrollToMsg) {
         // Find message index and use selectMessage which handles virtual scrolling
         setTimeout(() => {
-            const msgIndex = allMessages.findIndex(m => m.msg_id === scrollToMsg);
+            const targetId = String(scrollToMsg);
+            const msgIndex = allMessages.findIndex(m => String(m.msg_id) === targetId);
             if (msgIndex >= 0) {
                 selectMessage(msgIndex);
             }
