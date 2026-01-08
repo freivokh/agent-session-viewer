@@ -117,8 +117,9 @@
         test('safeSnippet: escapes onclick handlers', () => {
             const input = '<div onclick="evil()">click</div>';
             const output = safeSnippet(input);
-            assertNotContains(output, 'onclick', 'onclick should be escaped');
+            // The < is escaped, so it won't be parsed as HTML (onclick becomes harmless text)
             assertNotContains(output, '<div', 'div tag should be escaped');
+            assertContains(output, '&lt;div', 'div should be escaped to entity');
         });
 
         test('safeSnippet: preserves <mark> tags', () => {
@@ -134,11 +135,13 @@
             assertEqual(output, '<mark>one</mark> and <mark>two</mark>');
         });
 
-        test('safeSnippet: escapes fake mark tags with attributes', () => {
+        test('safeSnippet: escapes mark tags with attributes', () => {
+            // <mark onclick=...> is NOT the same as <mark>, so it stays escaped
             const input = '<mark onclick="evil()">bad</mark>';
             const output = safeSnippet(input);
-            // The onclick should be escaped even though mark is preserved
-            assertNotContains(output, 'onclick=', 'onclick in mark should be escaped');
+            // Only exact <mark> and </mark> are restored, not <mark ...attributes>
+            assertNotContains(output, '<mark onclick', 'mark with attributes should stay escaped');
+            assertContains(output, '&lt;mark onclick', 'mark with onclick should be escaped');
         });
 
         test('safeSnippet: handles nested script in mark', () => {
