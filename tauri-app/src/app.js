@@ -117,14 +117,26 @@ function renderSessionList() {
 // Calculate message offsets based on known or estimated heights
 function calculateOffsets() {
     messageOffsets = [];
+    if (allMessages.length === 0) {
+        totalHeight = 0;
+        return 0;
+    }
     let offset = 0;
     for (let i = 0; i < allMessages.length; i++) {
         messageOffsets.push(offset);
         const height = messageHeights.get(allMessages[i].msg_id) || ESTIMATED_HEIGHT;
         offset += height + GAP;
     }
-    totalHeight = offset - GAP; // Remove last gap
+    totalHeight = Math.max(0, offset - GAP); // Remove last gap, ensure non-negative
     return totalHeight;
+}
+
+// Update container height after offset recalculation
+function updateContainerHeight() {
+    const messagesContainer = document.querySelector('.messages');
+    if (messagesContainer) {
+        messagesContainer.style.minHeight = `${totalHeight}px`;
+    }
 }
 
 // Find which messages are visible given scroll position
@@ -166,6 +178,21 @@ function getVisibleRange(scrollTop, containerHeight) {
     return { start, end };
 }
 
+// Debounced height recalculation
+let heightRecalcTimeout = null;
+function scheduleHeightRecalc() {
+    if (heightRecalcTimeout) return;
+    heightRecalcTimeout = setTimeout(() => {
+        heightRecalcTimeout = null;
+        const oldHeight = totalHeight;
+        calculateOffsets();
+        if (totalHeight !== oldHeight) {
+            updateContainerHeight();
+            renderMinimap();
+        }
+    }, 100);
+}
+
 // Render only visible messages
 function renderVisibleMessages() {
     const messagesContainer = document.querySelector('.messages');
@@ -198,16 +225,23 @@ function renderVisibleMessages() {
     messagesContainer.innerHTML = html;
 
     // Measure rendered messages and update heights
+    let heightsChanged = false;
     messagesContainer.querySelectorAll('.message').forEach(msg => {
         const id = msg.id;
         const height = msg.offsetHeight;
         if (height > 0 && messageHeights.get(id) !== height) {
             messageHeights.set(id, height);
+            heightsChanged = true;
         }
         msg.addEventListener('click', () => {
             selectMessage(parseInt(msg.dataset.index));
         });
     });
+
+    // Schedule recalculation if heights changed
+    if (heightsChanged) {
+        scheduleHeightRecalc();
+    }
 }
 
 // Throttled scroll handler
@@ -296,7 +330,11 @@ function renderSession(data) {
     }
     selectedMessageIndex = -1;
 
-    // Calculate initial offsets
+    // Clear stale height cache from previous sessions
+    messageHeights.clear();
+    messageOffsets = [];
+
+    // Calculate initial offsets (will use estimated heights)
     calculateOffsets();
 
     // Initial visible range
