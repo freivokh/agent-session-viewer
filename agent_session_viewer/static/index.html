@@ -516,7 +516,7 @@
                 <input type="text" id="search-input" placeholder="Search messages...">
             </div>
             <div class="header-actions">
-                <button class="btn" id="sort-btn" title="Toggle message order">↑ Oldest first</button>
+                <button class="btn" id="sort-btn" title="Toggle message order">↓ Newest first</button>
                 <button class="btn" id="sync-btn" title="Sync now">↻ Sync</button>
                 <button class="btn" id="shortcuts-btn" title="Keyboard shortcuts">⌨ ?</button>
             </div>
@@ -600,7 +600,7 @@
         let currentSession = null;
         let currentSessionData = null;
         let searchTimeout = null;
-        let sortNewestFirst = false;  // Default to chronological (oldest first)
+        let sortNewestFirst = true;  // Default to newest first
         let selectedMessageIndex = -1;
         let statusPollInterval = null;
         let eventSource = null;  // SSE connection for live updates
