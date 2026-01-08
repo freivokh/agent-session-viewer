@@ -455,11 +455,18 @@
 
         .messages-container {
             flex: 1;
+            min-width: 0;  /* Allow flex item to shrink below content size */
             position: relative;
+            overflow: hidden;
         }
 
         .messages {
             position: relative;
+        }
+
+        .message {
+            min-width: 0;  /* Allow message to shrink */
+            max-width: 100%;
         }
 
         .message-spacer {

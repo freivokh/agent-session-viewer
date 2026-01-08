@@ -112,6 +112,12 @@ function renderSessionList() {
     sessionList.querySelectorAll('.session-item').forEach(item => {
         item.addEventListener('click', () => loadSession(item.dataset.id));
     });
+
+    // Scroll active session into view
+    const activeItem = sessionList.querySelector('.session-item.active');
+    if (activeItem) {
+        activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
 }
 
 // Calculate message offsets based on known or estimated heights
@@ -180,14 +186,19 @@ function getVisibleRange(scrollTop, containerHeight) {
 
 // Debounced height recalculation
 let heightRecalcTimeout = null;
+let lastMinimapHeight = 0;
 function scheduleHeightRecalc() {
     if (heightRecalcTimeout) return;
     heightRecalcTimeout = setTimeout(() => {
         heightRecalcTimeout = null;
+        const prevHeight = totalHeight;
         calculateOffsets();
         updateContainerHeight();
-        // Always re-render minimap since offsets may have changed even if totalHeight didn't
-        renderMinimap();
+        // Only re-render minimap if total height changed significantly (>5%)
+        if (Math.abs(totalHeight - lastMinimapHeight) > lastMinimapHeight * 0.05) {
+            lastMinimapHeight = totalHeight;
+            renderMinimap();
+        }
         updateMinimapViewport(content.scrollTop, content.clientHeight);
     }, 100);
 }
@@ -267,25 +278,33 @@ function renderMinimap() {
     const minimap = document.querySelector('.minimap');
     if (!minimap || allMessages.length === 0) return;
 
+    // Ensure offsets are calculated for all messages
+    if (messageOffsets.length !== allMessages.length) {
+        calculateOffsets();
+    }
+
     const canvas = minimap.querySelector('canvas');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
 
     // Set canvas size
-    canvas.width = 80 * dpr;
-    canvas.height = minimap.clientHeight * dpr;
+    const canvasWidth = 80;
+    const canvasHeight = minimap.clientHeight;
+    canvas.width = canvasWidth * dpr;
+    canvas.height = canvasHeight * dpr;
     ctx.scale(dpr, dpr);
 
-    const canvasHeight = minimap.clientHeight;
     const scale = canvasHeight / Math.max(totalHeight, 1);
 
-    ctx.clearRect(0, 0, 80, canvasHeight);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
     // Draw messages
     for (let i = 0; i < allMessages.length; i++) {
         const m = allMessages[i];
-        const y = messageOffsets[i] * scale;
-        const h = Math.max(2, (messageHeights.get(m.msg_id) || ESTIMATED_HEIGHT) * scale);
+        const offset = messageOffsets[i] ?? (i * (ESTIMATED_HEIGHT + GAP));
+        const height = messageHeights.get(m.msg_id) || ESTIMATED_HEIGHT;
+        const y = offset * scale;
+        const h = Math.max(2, height * scale);
 
         ctx.fillStyle = m.role === 'user' ? '#58a6ff' : '#9d7cd8';
         ctx.fillRect(8, y, 64, h - 1);
@@ -332,6 +351,7 @@ function renderSession(data) {
     // Clear stale height cache from previous sessions
     messageHeights.clear();
     messageOffsets = [];
+    lastMinimapHeight = 0;
 
     // Calculate initial offsets (will use estimated heights)
     calculateOffsets();

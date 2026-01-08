@@ -136,6 +136,7 @@ pub fn find_codex_sessions() -> Vec<PathBuf> {
 
 /// Sync result for a single session.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SyncResult {
     pub session_id: String,
     pub project: String,
