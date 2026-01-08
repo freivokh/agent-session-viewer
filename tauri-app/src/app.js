@@ -587,7 +587,8 @@ searchInput.addEventListener('input', (e) => {
 });
 
 searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.isComposing && !e.repeat) {
+        e.preventDefault();
         clearTimeout(searchTimeout);
         searchTimeout = null;
         doSearch(searchInput.value);
