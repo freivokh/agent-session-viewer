@@ -465,6 +465,12 @@ async function loadSession(id, scrollToMsg = null) {
     const session = sessions.find(s => s.session_id === id);
     if (!session) return;
 
+    // Clear any pending search timeout to prevent it from overwriting the session view
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        searchTimeout = null;
+    }
+
     currentSession = session;
     const messages = await fetchMessages(id);
     currentSessionData = { session, messages };
@@ -474,9 +480,12 @@ async function loadSession(id, scrollToMsg = null) {
     startWatching(id);
 
     if (scrollToMsg) {
+        // Find message index and use selectMessage which handles virtual scrolling
         setTimeout(() => {
-            const el = document.getElementById(scrollToMsg);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const msgIndex = allMessages.findIndex(m => m.msg_id === scrollToMsg);
+            if (msgIndex >= 0) {
+                selectMessage(msgIndex);
+            }
         }, 100);
     }
 }
