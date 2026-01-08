@@ -27,6 +27,7 @@
             --warning: #d29922;
             --tool-bg: #1a2332;
             --thinking-bg: #1f1a24;
+            --agent-accent: #9d7cd8;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -255,10 +256,12 @@
 
         .message.user {
             background: var(--user-bg);
+            border-left: 3px solid var(--accent);
         }
 
         .message.assistant {
             background: var(--assistant-bg);
+            border-left: 3px solid var(--agent-accent);
         }
 
         .message-header {
@@ -275,7 +278,7 @@
         }
 
         .message.user .message-role { color: var(--accent); }
-        .message.assistant .message-role { color: var(--text-muted); }
+        .message.assistant .message-role { color: var(--agent-accent); }
 
         .message-time { color: var(--text-muted); }
 
@@ -304,6 +307,35 @@
         .message-content pre code {
             background: none;
             padding: 0;
+        }
+
+        .thinking-block {
+            background: var(--thinking-bg);
+            border-left: 2px solid #8b5cf6;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-style: italic;
+            color: var(--text-muted);
+        }
+
+        .thinking-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #8b5cf6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            font-style: normal;
+        }
+
+        .tool-block {
+            background: var(--tool-bg);
+            border-left: 2px solid var(--warning);
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 0.85rem;
         }
 
         /* Search results */
@@ -868,6 +900,12 @@
             html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             // Inline code
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Thinking blocks
+            html = html.replace(/\[Thinking\]\n([\s\S]*?)(?=\n\[|$)/g,
+                '<div class="thinking-block"><div class="thinking-label">Thinking</div>$1</div>');
+            // Tool blocks (various patterns)
+            html = html.replace(/\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|Question|Todo List|Entering Plan Mode|Exiting Plan Mode)([^\]]*)\]([\s\S]*?)(?=\n\[|\n\n|<div|$)/g,
+                '<div class="tool-block">[$1$2]$3</div>');
             return html;
         }
 
