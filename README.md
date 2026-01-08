@@ -29,7 +29,11 @@ pip install agent-session-viewer
 ## Usage
 
 ```bash
+# If installed via uv tool install or pip
 agent-session-viewer
+
+# Or run directly without installing
+uvx agent-session-viewer
 ```
 
 Opens a browser at `http://localhost:8080`.
