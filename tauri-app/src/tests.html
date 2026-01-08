@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Agent Session Viewer - Frontend Tests</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, monospace;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #58a6ff; }
+        .test { margin: 10px 0; padding: 10px; border-radius: 6px; }
+        .pass { background: #1a3d1a; border-left: 3px solid #3fb950; }
+        .fail { background: #3d1a1a; border-left: 3px solid #f85149; }
+        .test-name { font-weight: bold; }
+        .expected, .actual { font-size: 0.85em; color: #8b949e; margin-top: 4px; }
+        .summary { margin-top: 20px; padding: 15px; border-radius: 6px; font-size: 1.1em; }
+        .summary.all-pass { background: #1a3d1a; }
+        .summary.has-fail { background: #3d1a1a; }
+        code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Frontend Tests</h1>
+    <div id="results"></div>
+    <div id="summary"></div>
+
+    <script>
+        // === Functions under test (copied from app.js) ===
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function safeSnippet(snippet) {
+            if (!snippet) return '';
+            let safe = escapeHtml(snippet);
+            safe = safe.replace(/&lt;mark&gt;/g, '<mark>');
+            safe = safe.replace(/&lt;\/mark&gt;/g, '</mark>');
+            return safe;
+        }
+
+        // === Test Framework ===
+
+        const results = [];
+
+        function test(name, fn) {
+            try {
+                fn();
+                results.push({ name, pass: true });
+            } catch (e) {
+                results.push({ name, pass: false, error: e.message });
+            }
+        }
+
+        function assertEqual(actual, expected, msg = '') {
+            if (actual !== expected) {
+                throw new Error(`${msg}\nExpected: ${JSON.stringify(expected)}\nActual: ${JSON.stringify(actual)}`);
+            }
+        }
+
+        function assertContains(str, substr, msg = '') {
+            if (!str.includes(substr)) {
+                throw new Error(`${msg}\nExpected to contain: ${JSON.stringify(substr)}\nActual: ${JSON.stringify(str)}`);
+            }
+        }
+
+        function assertNotContains(str, substr, msg = '') {
+            if (str.includes(substr)) {
+                throw new Error(`${msg}\nExpected NOT to contain: ${JSON.stringify(substr)}\nActual: ${JSON.stringify(str)}`);
+            }
+        }
+
+        // === Tests ===
+
+        // escapeHtml tests
+        test('escapeHtml: escapes < and >', () => {
+            assertEqual(escapeHtml('<script>'), '&lt;script&gt;');
+        });
+
+        test('escapeHtml: escapes ampersand', () => {
+            assertEqual(escapeHtml('a & b'), 'a &amp; b');
+        });
+
+        test('escapeHtml: escapes quotes', () => {
+            assertEqual(escapeHtml('"test"'), '&quot;test&quot;');
+        });
+
+        test('escapeHtml: handles null/undefined', () => {
+            assertEqual(escapeHtml(null), '');
+            assertEqual(escapeHtml(undefined), '');
+            assertEqual(escapeHtml(''), '');
+        });
+
+        // safeSnippet security tests
+        test('safeSnippet: escapes script tags', () => {
+            const input = '<script>alert("xss")</script>';
+            const output = safeSnippet(input);
+            assertNotContains(output, '<script>', 'script tag should be escaped');
+            assertContains(output, '&lt;script&gt;', 'script should be escaped');
+        });
+
+        test('safeSnippet: escapes img onerror', () => {
+            const input = '<img src=x onerror="alert(1)">';
+            const output = safeSnippet(input);
+            assertNotContains(output, '<img', 'img tag should be escaped');
+        });
+
+        test('safeSnippet: escapes onclick handlers', () => {
+            const input = '<div onclick="evil()">click</div>';
+            const output = safeSnippet(input);
+            assertNotContains(output, 'onclick', 'onclick should be escaped');
+            assertNotContains(output, '<div', 'div tag should be escaped');
+        });
+
+        test('safeSnippet: preserves <mark> tags', () => {
+            const input = 'Search for <mark>keyword</mark> here';
+            const output = safeSnippet(input);
+            assertContains(output, '<mark>', 'mark tag should be preserved');
+            assertContains(output, '</mark>', 'closing mark tag should be preserved');
+        });
+
+        test('safeSnippet: preserves multiple <mark> tags', () => {
+            const input = '<mark>one</mark> and <mark>two</mark>';
+            const output = safeSnippet(input);
+            assertEqual(output, '<mark>one</mark> and <mark>two</mark>');
+        });
+
+        test('safeSnippet: escapes fake mark tags with attributes', () => {
+            const input = '<mark onclick="evil()">bad</mark>';
+            const output = safeSnippet(input);
+            // The onclick should be escaped even though mark is preserved
+            assertNotContains(output, 'onclick=', 'onclick in mark should be escaped');
+        });
+
+        test('safeSnippet: handles nested script in mark', () => {
+            const input = '<mark><script>alert(1)</script></mark>';
+            const output = safeSnippet(input);
+            assertNotContains(output, '<script>', 'nested script should be escaped');
+            assertContains(output, '<mark>', 'mark should still work');
+        });
+
+        test('safeSnippet: handles null/empty', () => {
+            assertEqual(safeSnippet(null), '');
+            assertEqual(safeSnippet(''), '');
+            assertEqual(safeSnippet(undefined), '');
+        });
+
+        test('safeSnippet: preserves normal text', () => {
+            const input = 'Just some normal text with numbers 123';
+            assertEqual(safeSnippet(input), input);
+        });
+
+        test('safeSnippet: handles mark at boundaries', () => {
+            assertEqual(safeSnippet('<mark>start'), '<mark>start');
+            assertEqual(safeSnippet('end</mark>'), 'end</mark>');
+        });
+
+        // === Render Results ===
+
+        const resultsDiv = document.getElementById('results');
+        const summaryDiv = document.getElementById('summary');
+
+        let passed = 0, failed = 0;
+
+        results.forEach(r => {
+            const div = document.createElement('div');
+            div.className = `test ${r.pass ? 'pass' : 'fail'}`;
+
+            if (r.pass) {
+                passed++;
+                div.innerHTML = `<span class="test-name">✓ ${r.name}</span>`;
+            } else {
+                failed++;
+                div.innerHTML = `
+                    <span class="test-name">✗ ${r.name}</span>
+                    <div class="expected"><pre>${r.error}</pre></div>
+                `;
+            }
+
+            resultsDiv.appendChild(div);
+        });
+
+        summaryDiv.className = `summary ${failed > 0 ? 'has-fail' : 'all-pass'}`;
+        summaryDiv.textContent = `${passed} passed, ${failed} failed`;
+    </script>
+</body>
+</html>
