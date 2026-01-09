@@ -154,6 +154,24 @@
             letter-spacing: 0.5px;
         }
 
+        .project-filter {
+            flex: 1;
+            margin: 0 8px;
+            padding: 4px 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 0.75rem;
+            cursor: pointer;
+            max-width: 140px;
+        }
+
+        .project-filter:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
         .session-list { list-style: none; }
 
         .session-item {
@@ -244,13 +262,13 @@
         }
 
         .message.user {
-            background: var(--user-bg);
-            border-left: 3px solid var(--accent);
+            background: #1a2535;
+            border-left: 3px solid #3b82f6;
         }
 
-        .message.assistant {
-            background: var(--assistant-bg);
-            border-left: 3px solid var(--agent-accent);
+        .message.agent {
+            background: #1e1a24;
+            border-left: 3px solid #a855f7;
         }
 
         .message-header {
@@ -266,8 +284,8 @@
             letter-spacing: 0.5px;
         }
 
-        .message.user .message-role { color: var(--accent); }
-        .message.assistant .message-role { color: var(--agent-accent); }
+        .message.user .message-role { color: #3b82f6; }
+        .message.agent .message-role { color: #a855f7; }
         .message-time { color: var(--text-muted); }
 
         .message-content {
@@ -305,6 +323,11 @@
             border-radius: 4px;
             font-style: italic;
             color: var(--text-muted);
+            display: none;
+        }
+
+        body.show-thinking .thinking-block {
+            display: block;
         }
 
         .thinking-label {
@@ -540,6 +563,7 @@
                 <input type="text" id="search-input" placeholder="Search messages...">
             </div>
             <div class="header-actions">
+                <button class="btn" id="thinking-btn" title="Toggle thinking blocks">○ Thinking</button>
                 <button class="btn" id="scroll-top-btn" title="Scroll to top">↑ Top</button>
                 <button class="btn" id="sort-btn" title="Toggle message order">↓ Newest first</button>
                 <button class="btn" id="sync-btn" title="Sync now">↻ Sync</button>
@@ -552,6 +576,9 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h2>Sessions</h2>
+                <select id="project-filter" class="project-filter">
+                    <option value="">All projects</option>
+                </select>
                 <span id="session-count" class="badge">0</span>
             </div>
             <ul class="session-list" id="session-list">

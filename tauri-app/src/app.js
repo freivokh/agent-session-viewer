@@ -3,10 +3,13 @@ const { invoke } = window.__TAURI__.core;
 
 // State
 let sessions = [];
+let allSessions = [];  // Unfiltered sessions
 let currentSession = null;
 let currentSessionData = null;
 let searchTimeout = null;
 let sortNewestFirst = true;
+let showThinking = false;
+let selectedProject = '';
 let selectedMessageIndex = -1;
 let watchInterval = null;
 
@@ -23,10 +26,12 @@ const GAP = 16;                 // Gap between messages
 // DOM elements
 const sessionList = document.getElementById('session-list');
 const sessionCount = document.getElementById('session-count');
+const projectFilter = document.getElementById('project-filter');
 const content = document.getElementById('content');
 const searchInput = document.getElementById('search-input');
 const syncBtn = document.getElementById('sync-btn');
 const sortBtn = document.getElementById('sort-btn');
+const thinkingBtn = document.getElementById('thinking-btn');
 const scrollTopBtn = document.getElementById('scroll-top-btn');
 const shortcutsBtn = document.getElementById('shortcuts-btn');
 const shortcutsModal = document.getElementById('shortcuts-modal');
@@ -37,6 +42,10 @@ const syncStatusEl = document.getElementById('sync-status');
 // API calls via Tauri invoke
 async function fetchSessions() {
     return await invoke('get_sessions', { limit: 1000 });
+}
+
+async function fetchProjects() {
+    return await invoke('get_projects');
 }
 
 async function fetchMessages(sessionId) {
@@ -89,6 +98,30 @@ function toggleSort() {
     if (currentSessionData) {
         renderSession(currentSessionData);
     }
+}
+
+function toggleThinking() {
+    showThinking = !showThinking;
+    thinkingBtn.textContent = showThinking ? '◉ Thinking' : '○ Thinking';
+    document.body.classList.toggle('show-thinking', showThinking);
+
+    // Clear all cached heights since thinking blocks affect all messages
+    messageHeights.clear();
+
+    // Recalculate heights and re-render after CSS transition
+    setTimeout(() => {
+        // Re-measure visible message heights
+        document.querySelectorAll('.message').forEach(msg => {
+            const id = msg.id;
+            const height = msg.offsetHeight;
+            if (height > 0) {
+                messageHeights.set(id, height);
+            }
+        });
+        calculateOffsets();
+        renderMinimap();
+        updateMinimapViewport(content.scrollTop, content.clientHeight);
+    }, 50);
 }
 
 // Render functions
@@ -222,11 +255,13 @@ function renderVisibleMessages() {
 
     for (let i = start; i < end && i < allMessages.length; i++) {
         const m = allMessages[i];
+        const roleClass = m.role === 'assistant' ? 'agent' : m.role;
+        const roleLabel = m.role === 'assistant' ? 'agent' : m.role;
         html += `
-            <div class="message ${m.role} ${i === selectedMessageIndex ? 'selected' : ''}"
+            <div class="message ${roleClass} ${i === selectedMessageIndex ? 'selected' : ''}"
                  id="${m.msg_id}" data-index="${i}">
                 <div class="message-header">
-                    <span class="message-role">${m.role}</span>
+                    <span class="message-role">${roleLabel}</span>
                     <span class="message-time">${formatTime(m.timestamp)}</span>
                 </div>
                 <div class="message-content">${formatContent(m.content)}</div>
@@ -403,11 +438,19 @@ function selectMessage(index, direction = 0) {
     index = Math.max(0, Math.min(index, allMessages.length - 1));
     selectedMessageIndex = index;
 
-    // Scroll to the message position
+    // Check if the message is already visible in the viewport
     const msgOffset = messageOffsets[index] || 0;
-    content.scrollTo({ top: Math.max(0, msgOffset - 100) });
+    const msgHeight = messageHeights.get(allMessages[index]?.msg_id) || ESTIMATED_HEIGHT;
+    const scrollTop = content.scrollTop;
+    const viewportHeight = content.clientHeight;
+    const isVisible = msgOffset >= scrollTop && (msgOffset + msgHeight) <= (scrollTop + viewportHeight);
 
-    // Re-render to show selection (scroll handler will update visible range)
+    // Only scroll if the message is not visible
+    if (!isVisible) {
+        content.scrollTo({ top: Math.max(0, msgOffset - 100) });
+    }
+
+    // Update selection styling
     setTimeout(() => {
         const msgEl = document.getElementById(allMessages[index].msg_id);
         if (msgEl) {
@@ -481,9 +524,51 @@ function renderSearchResults(query, results) {
 
 // Load functions
 async function loadSessions() {
-    sessions = await fetchSessions();
+    allSessions = await fetchSessions();
+
+    // Populate project filter dropdown safely (avoid XSS)
+    const projects = await fetchProjects();
+    projectFilter.innerHTML = '';
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'All projects';
+    projectFilter.appendChild(allOption);
+    for (const p of projects) {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        opt.selected = p === selectedProject;
+        projectFilter.appendChild(opt);
+    }
+
+    // Apply current filter
+    filterSessions();
+}
+
+function filterSessions() {
+    if (selectedProject) {
+        sessions = allSessions.filter(s => s.project === selectedProject);
+    } else {
+        sessions = allSessions;
+    }
     renderSessionList();
     statusText.textContent = `${sessions.length} sessions`;
+
+    // If current session is no longer in filtered list, clear or select first
+    if (currentSession && !sessions.find(s => s.session_id === currentSession.session_id)) {
+        if (sessions.length > 0) {
+            loadSession(sessions[0].session_id);
+        } else {
+            currentSession = null;
+            currentSessionData = null;
+            content.innerHTML = `
+                <div class="empty-state">
+                    <h2>No sessions</h2>
+                    <p>No sessions match the current filter</p>
+                </div>
+            `;
+        }
+    }
 }
 
 async function loadSession(id, scrollToMsg = null) {
@@ -602,7 +687,12 @@ searchInput.addEventListener('keydown', (e) => {
 
 syncBtn.addEventListener('click', triggerSync);
 sortBtn.addEventListener('click', toggleSort);
+thinkingBtn.addEventListener('click', toggleThinking);
 scrollTopBtn.addEventListener('click', () => content.scrollTo({ top: 0 }));
+projectFilter.addEventListener('change', (e) => {
+    selectedProject = e.target.value;
+    filterSessions();
+});
 shortcutsBtn.addEventListener('click', openShortcutsModal);
 modalClose.addEventListener('click', closeShortcutsModal);
 

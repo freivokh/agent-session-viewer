@@ -5,7 +5,6 @@
   "identifier": "com.wesm.agent-session-viewer",
   "build": {
     "beforeDevCommand": "",
-    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "",
     "frontendDist": "../src"
   },
