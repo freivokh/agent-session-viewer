@@ -30,9 +30,10 @@ else
     exit 1
   fi
 
-  # Use find -print0 and sort by mtime to handle spaces safely
-  DMG_PATH=$(find "$DIST_DIR" -name "*.dmg" -type f -print0 2>/dev/null | \
-    xargs -0 ls -t 2>/dev/null | head -1) || true
+  # Find newest DMG by mtime, handling spaces safely
+  # Uses stat to get mtime and sort globally (avoids xargs batch sorting issues)
+  DMG_PATH=$(find "$DIST_DIR" -name "*.dmg" -type f -exec stat -f "%m %N" {} \; 2>/dev/null | \
+    sort -rn | head -1 | cut -d' ' -f2-)
 
   # Verify we found a valid DMG (not empty and is a file)
   if [ -z "$DMG_PATH" ] || [ ! -f "$DMG_PATH" ]; then
