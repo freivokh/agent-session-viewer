@@ -870,19 +870,26 @@
             });
         }
 
+        // Get visible messages (excludes hidden thinking-only when thinking is off)
+        function getVisibleMessages() {
+            const selector = showThinking ? '.message' : '.message:not(.thinking-only)';
+            return content.querySelectorAll(selector);
+        }
+
         function selectMessage(index, direction = 0) {
-            const messages = content.querySelectorAll('.message');
-            if (messages.length === 0) return;
+            const allMessages = content.querySelectorAll('.message');
+            const visibleMessages = getVisibleMessages();
+            if (visibleMessages.length === 0) return;
 
-            // Clamp index
-            index = Math.max(0, Math.min(index, messages.length - 1));
+            // Clamp index to visible messages
+            index = Math.max(0, Math.min(index, visibleMessages.length - 1));
 
-            // Remove previous selection
-            messages.forEach(m => m.classList.remove('selected'));
+            // Remove previous selection from all messages
+            allMessages.forEach(m => m.classList.remove('selected'));
 
             // Select new message
             selectedMessageIndex = index;
-            const selected = messages[index];
+            const selected = visibleMessages[index];
             if (selected) {
                 selected.classList.add('selected');
 
@@ -891,26 +898,20 @@
 
                 const isAbove = rect.top < contentRect.top;
                 const isBelow = rect.bottom > contentRect.bottom;
-                const isTallerThanViewport = rect.height > contentRect.height;
 
-                if (direction !== 0 && (isAbove || isBelow)) {
-                    // Keyboard navigation - always align to top for consistency
-                    // This ensures the message is fully visible from the start
-                    selected.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                } else if (direction === 0 && (isAbove || isBelow)) {
-                    // Click - align to top as well
+                if (isAbove || isBelow) {
                     selected.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             }
         }
 
         function navigateMessages(direction) {
-            const messages = content.querySelectorAll('.message');
-            if (messages.length === 0) return;
+            const visibleMessages = getVisibleMessages();
+            if (visibleMessages.length === 0) return;
 
             if (selectedMessageIndex === -1) {
                 // No selection, select first or last based on direction
-                selectMessage(direction > 0 ? 0 : messages.length - 1, direction);
+                selectMessage(direction > 0 ? 0 : visibleMessages.length - 1, direction);
             } else {
                 selectMessage(selectedMessageIndex + direction, direction);
             }
@@ -1018,7 +1019,13 @@
             if (scrollToMsg) {
                 setTimeout(() => {
                     const el = document.getElementById(scrollToMsg);
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    if (el) {
+                        // Auto-enable thinking if target is a hidden thinking-only message
+                        if (!showThinking && el.classList.contains('thinking-only')) {
+                            toggleThinking();
+                        }
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
                 }, 100);
             }
         }
