@@ -222,22 +222,31 @@ let heightRecalcTimeout = null;
 let lastMinimapHeight = 0;
 let lastMeasuredCount = 0;
 let minimapClickInProgress = false;
+let minimapClickTimeout = null;
+let minimapNeedsRender = false;
 function scheduleHeightRecalc() {
     if (heightRecalcTimeout) return;
     heightRecalcTimeout = setTimeout(() => {
         heightRecalcTimeout = null;
         calculateOffsets();
         updateContainerHeight();
-        // Skip minimap re-render if triggered by minimap click (prevents judder)
-        if (minimapClickInProgress) {
-            updateMinimapViewport(content.scrollTop, content.clientHeight);
-            return;
-        }
-        // Re-render minimap only if height changed significantly (>5%) or many new heights measured (>10)
+
+        // Check if minimap needs re-render
         const measuredCount = messageHeights.size;
         const heightChanged = Math.abs(totalHeight - lastMinimapHeight) > lastMinimapHeight * 0.05;
         const manyNewMeasured = measuredCount - lastMeasuredCount > 10;
-        if (heightChanged || manyNewMeasured) {
+        const shouldRenderMinimap = heightChanged || manyNewMeasured;
+
+        // Skip minimap re-render if triggered by minimap click (prevents judder)
+        if (minimapClickInProgress) {
+            if (shouldRenderMinimap) {
+                minimapNeedsRender = true;  // Defer until click completes
+            }
+            updateMinimapViewport(content.scrollTop, content.clientHeight);
+            return;
+        }
+
+        if (shouldRenderMinimap) {
             lastMinimapHeight = totalHeight;
             lastMeasuredCount = measuredCount;
             renderMinimap();
@@ -401,6 +410,11 @@ function handleMinimapClick(e) {
     const scale = minimap.clientHeight / Math.max(totalHeight, 1);
     const scrollTop = y / scale - content.clientHeight / 2;
 
+    // Cancel any previous click timeout to handle rapid clicks
+    if (minimapClickTimeout) {
+        clearTimeout(minimapClickTimeout);
+    }
+
     // Prevent minimap re-render during click-initiated scroll
     minimapClickInProgress = true;
 
@@ -414,8 +428,17 @@ function handleMinimapClick(e) {
         updateMinimapViewport(content.scrollTop, content.clientHeight);
 
         // Clear flag after scroll settles
-        setTimeout(() => {
+        minimapClickTimeout = setTimeout(() => {
             minimapClickInProgress = false;
+            minimapClickTimeout = null;
+
+            // Render deferred minimap update if needed
+            if (minimapNeedsRender) {
+                minimapNeedsRender = false;
+                lastMinimapHeight = totalHeight;
+                lastMeasuredCount = messageHeights.size;
+                renderMinimap();
+            }
         }, 200);
     });
 }
