@@ -227,11 +227,11 @@ function scheduleHeightRecalc() {
         heightRecalcTimeout = null;
         calculateOffsets();
         updateContainerHeight();
-        // Re-render minimap if height changed significantly OR more heights were measured
+        // Re-render minimap only if height changed significantly (>5%) or many new heights measured (>10)
         const measuredCount = messageHeights.size;
         const heightChanged = Math.abs(totalHeight - lastMinimapHeight) > lastMinimapHeight * 0.05;
-        const moreHeightsMeasured = measuredCount > lastMeasuredCount;
-        if (heightChanged || moreHeightsMeasured) {
+        const manyNewMeasured = measuredCount - lastMeasuredCount > 10;
+        if (heightChanged || manyNewMeasured) {
             lastMinimapHeight = totalHeight;
             lastMeasuredCount = measuredCount;
             renderMinimap();
@@ -245,15 +245,34 @@ function renderVisibleMessages() {
     const messagesContainer = document.querySelector('.messages');
     if (!messagesContainer) return;
 
-    const { start, end } = visibleRange;
-    const topSpacer = start > 0 ? messageOffsets[start] : 0;
-    const bottomSpacer = end < allMessages.length
-        ? totalHeight - messageOffsets[end - 1] - (messageHeights.get(allMessages[end - 1]?.msg_id) || ESTIMATED_HEIGHT)
-        : 0;
+    let { start, end } = visibleRange;
+
+    // Ensure valid bounds
+    start = Math.max(0, Math.min(start, allMessages.length));
+    end = Math.max(start, Math.min(end, allMessages.length));
+
+    // If no messages to render, show empty
+    if (start >= end || allMessages.length === 0) {
+        messagesContainer.innerHTML = '';
+        return;
+    }
+
+    // Calculate spacers based on offsets
+    const topSpacer = start > 0 && messageOffsets[start] !== undefined ? messageOffsets[start] : 0;
+
+    // Bottom spacer: total height minus the end of the last rendered message
+    let bottomSpacer = 0;
+    if (end < allMessages.length && end > 0) {
+        const lastRenderedIdx = end - 1;
+        const lastOffset = messageOffsets[lastRenderedIdx] || 0;
+        const lastHeight = messageHeights.get(allMessages[lastRenderedIdx]?.msg_id) || ESTIMATED_HEIGHT;
+        bottomSpacer = totalHeight - lastOffset - lastHeight - GAP;
+    }
+    bottomSpacer = Math.max(0, bottomSpacer);
 
     let html = `<div class="message-spacer" style="height: ${topSpacer}px;"></div>`;
 
-    for (let i = start; i < end && i < allMessages.length; i++) {
+    for (let i = start; i < end; i++) {
         const m = allMessages[i];
         const roleClass = m.role === 'assistant' ? 'agent' : m.role;
         const roleLabel = m.role === 'assistant' ? 'agent' : m.role;
@@ -269,7 +288,7 @@ function renderVisibleMessages() {
         `;
     }
 
-    html += `<div class="message-spacer" style="height: ${Math.max(0, bottomSpacer)}px;"></div>`;
+    html += `<div class="message-spacer" style="height: ${bottomSpacer}px;"></div>`;
 
     messagesContainer.innerHTML = html;
 
@@ -377,6 +396,14 @@ function handleMinimapClick(e) {
     const scrollTop = y / scale - content.clientHeight / 2;
 
     content.scrollTo({ top: Math.max(0, scrollTop) });
+
+    // Force immediate visible range update after scroll
+    requestAnimationFrame(() => {
+        const newRange = getVisibleRange(content.scrollTop, content.clientHeight);
+        visibleRange = newRange;
+        renderVisibleMessages();
+        updateMinimapViewport(content.scrollTop, content.clientHeight);
+    });
 }
 
 function renderSession(data) {
