@@ -352,6 +352,15 @@
             display: block;
         }
 
+        /* Hide messages that only contain thinking content */
+        .message.thinking-only {
+            display: none;
+        }
+
+        body.show-thinking .message.thinking-only {
+            display: block;
+        }
+
         .thinking-label {
             font-size: 0.75rem;
             font-weight: 600;
@@ -837,15 +846,17 @@
             content.innerHTML = `
                 <div class="session-detail">
                     <div class="messages">
-                        ${sortedMessages.map((m, i) => `
-                            <div class="message ${m.role}" id="${m.msg_id}" data-index="${i}">
+                        ${sortedMessages.map((m, i) => {
+                            const thinkingOnlyClass = m.role === 'assistant' && isThinkingOnly(m.content) ? ' thinking-only' : '';
+                            return `
+                            <div class="message ${m.role}${thinkingOnlyClass}" id="${m.msg_id}" data-index="${i}">
                                 <div class="message-header">
                                     <span class="message-role">${m.role}</span>
                                     <span class="message-time">${formatTime(m.timestamp)}</span>
                                 </div>
                                 <div class="message-content">${formatContent(m.content)}</div>
                             </div>
-                        `).join('')}
+                        `}).join('')}
                     </div>
                 </div>
             `;
@@ -1041,6 +1052,13 @@
                 .replace(/"/g, '&quot;');
         }
 
+        function isThinkingOnly(content) {
+            if (!content) return false;
+            // Remove thinking blocks and check if anything meaningful remains
+            const withoutThinking = content.replace(/\[Thinking\]\n?[\s\S]*?(?=\n\[|\n\n\[|$)/g, '').trim();
+            return withoutThinking === '';
+        }
+
         function formatContent(text) {
             if (!text) return '';
             // Basic markdown-ish formatting
@@ -1049,8 +1067,8 @@
             html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             // Inline code
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-            // Thinking blocks
-            html = html.replace(/\[Thinking\]\n([\s\S]*?)(?=\n\[|$)/g,
+            // Thinking blocks - match [Thinking] followed by content until next block or end
+            html = html.replace(/\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n\[|$)/g,
                 '<div class="thinking-block"><div class="thinking-label">Thinking</div>$1</div>');
             // Tool blocks (various patterns)
             html = html.replace(/\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|Question|Todo List|Entering Plan Mode|Exiting Plan Mode)([^\]]*)\]([\s\S]*?)(?=\n\[|\n\n|<div|$)/g,
