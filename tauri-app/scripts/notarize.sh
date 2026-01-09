@@ -32,8 +32,9 @@ else
 
   # Find newest DMG by mtime, handling spaces safely
   # Uses stat to get mtime and sort globally (avoids xargs batch sorting issues)
+  # || true ensures pipeline failures fall through to friendly error message
   DMG_PATH=$(find "$DIST_DIR" -name "*.dmg" -type f -exec stat -f "%m %N" {} \; 2>/dev/null | \
-    sort -rn | head -1 | cut -d' ' -f2-)
+    sort -rn | head -1 | cut -d' ' -f2-) || true
 
   # Verify we found a valid DMG (not empty and is a file)
   if [ -z "$DMG_PATH" ] || [ ! -f "$DMG_PATH" ]; then
