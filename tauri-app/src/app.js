@@ -19,7 +19,7 @@ let messageHeights = new Map(); // msg_id -> actual height
 let messageOffsets = [];        // Cumulative offsets for each message
 let totalHeight = 0;
 let visibleRange = { start: 0, end: 20 };
-const ESTIMATED_HEIGHT = 150;   // Default estimate per message
+const ESTIMATED_HEIGHT = 80;    // Default estimate per message (conservative)
 const BUFFER_PX = 400;          // Render buffer above/below viewport
 const GAP = 16;                 // Gap between messages
 
@@ -221,12 +221,18 @@ function getVisibleRange(scrollTop, containerHeight) {
 let heightRecalcTimeout = null;
 let lastMinimapHeight = 0;
 let lastMeasuredCount = 0;
+let minimapClickInProgress = false;
 function scheduleHeightRecalc() {
     if (heightRecalcTimeout) return;
     heightRecalcTimeout = setTimeout(() => {
         heightRecalcTimeout = null;
         calculateOffsets();
         updateContainerHeight();
+        // Skip minimap re-render if triggered by minimap click (prevents judder)
+        if (minimapClickInProgress) {
+            updateMinimapViewport(content.scrollTop, content.clientHeight);
+            return;
+        }
         // Re-render minimap only if height changed significantly (>5%) or many new heights measured (>10)
         const measuredCount = messageHeights.size;
         const heightChanged = Math.abs(totalHeight - lastMinimapHeight) > lastMinimapHeight * 0.05;
@@ -395,6 +401,9 @@ function handleMinimapClick(e) {
     const scale = minimap.clientHeight / Math.max(totalHeight, 1);
     const scrollTop = y / scale - content.clientHeight / 2;
 
+    // Prevent minimap re-render during click-initiated scroll
+    minimapClickInProgress = true;
+
     content.scrollTo({ top: Math.max(0, scrollTop) });
 
     // Force immediate visible range update after scroll
@@ -403,6 +412,11 @@ function handleMinimapClick(e) {
         visibleRange = newRange;
         renderVisibleMessages();
         updateMinimapViewport(content.scrollTop, content.clientHeight);
+
+        // Clear flag after scroll settles
+        setTimeout(() => {
+            minimapClickInProgress = false;
+        }, 200);
     });
 }
 
@@ -454,6 +468,7 @@ function renderSession(data) {
     // Render minimap after a brief delay to ensure heights are measured
     setTimeout(() => {
         calculateOffsets();
+        updateContainerHeight();  // Update container with measured heights
         renderMinimap();
         updateMinimapViewport(content.scrollTop, content.clientHeight);
     }, 50);
@@ -555,6 +570,12 @@ async function loadSessions() {
 
     // Populate project filter dropdown safely (avoid XSS)
     const projects = await fetchProjects();
+
+    // Reset selectedProject if it no longer exists
+    if (selectedProject && !projects.includes(selectedProject)) {
+        selectedProject = '';
+    }
+
     projectFilter.innerHTML = '';
     const allOption = document.createElement('option');
     allOption.value = '';
@@ -567,6 +588,7 @@ async function loadSessions() {
         opt.selected = p === selectedProject;
         projectFilter.appendChild(opt);
     }
+    projectFilter.value = selectedProject;
 
     // Apply current filter
     filterSessions();

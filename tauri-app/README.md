@@ -5,14 +5,13 @@ Native macOS app for browsing and searching AI coding sessions.
 ## Development
 
 ```bash
-# Start dev server (required for hot reload)
-cd tauri-app/src
-python3 -m http.server 1420
-
-# In another terminal, run the app
 cd tauri-app
-npx @tauri-apps/cli dev
+npm install
+npm run tauri dev
 ```
+
+The app serves static files directly from `src/` (no dev server needed).
+Changes to `src/` files require restarting the app.
 
 ## Building
 
