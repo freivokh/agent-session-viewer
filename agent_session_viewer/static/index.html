@@ -803,11 +803,15 @@
             }
         }
 
+        function updateThinkingUI() {
+            thinkingBtn.textContent = showThinking ? '◉ Thinking' : '○ Thinking';
+            thinkingBtn.setAttribute('aria-pressed', showThinking ? 'true' : 'false');
+            document.body.classList.toggle('show-thinking', showThinking);
+        }
+
         function toggleThinking() {
             showThinking = !showThinking;
-            thinkingBtn.textContent = showThinking ? '◉ Thinking' : '○ Thinking';
-            thinkingBtn.setAttribute('aria-pressed', showThinking);
-            document.body.classList.toggle('show-thinking', showThinking);
+            updateThinkingUI();
         }
 
         // Render functions
@@ -1239,6 +1243,7 @@
 
         // Initialize
         (async () => {
+            updateThinkingUI();  // Sync UI with initial showThinking state
             selectedProject = localStorage.getItem(PROJECT_FILTER_STORAGE_KEY) || 'all';
             await loadProjects();
             await loadSessions();
