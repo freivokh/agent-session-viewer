@@ -3,6 +3,7 @@
 ## Git Workflow
 
 - **Never amend commits** - always create new commits for fixes
+- **Let the user handle branch management** - don't create, switch, or manage branches
 - Use conventional commit messages
 - Run tests before committing when applicable
 
