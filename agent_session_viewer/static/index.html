@@ -534,6 +534,79 @@
             color: var(--text-muted);
             font-size: 0.85rem;
         }
+
+        /* Publish modal styles */
+        .modal-section { display: none; }
+        .modal-section.active { display: block; }
+
+        .modal-text { color: var(--text-muted); margin-bottom: 16px; }
+        .modal-text-error { color: #f85149; margin-bottom: 16px; }
+
+        .modal-instructions {
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            padding-left: 20px;
+            line-height: 1.8;
+        }
+
+        .modal-instructions a { color: var(--accent); }
+
+        .modal-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.9rem;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .modal-input-group { margin-bottom: 16px; }
+
+        .modal-input-label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .modal-input-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .modal-input-row .modal-input {
+            flex: 1;
+            font-size: 0.85rem;
+        }
+
+        .modal-error {
+            color: #f85149;
+            margin-bottom: 12px;
+            display: none;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .modal-center {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .modal-center p {
+            color: var(--text-muted);
+            margin-top: 12px;
+        }
     </style>
 </head>
 <body>
@@ -552,7 +625,9 @@
             <div class="header-actions">
                 <button class="btn" id="thinking-btn" title="Toggle thinking blocks" aria-pressed="false">○ Thinking</button>
                 <button class="btn" id="scroll-top-btn" title="Scroll to top">↑ Top</button>
-                <button class="btn" id="sort-btn" title="Toggle message order">↓ Newest first</button>
+                <button class="btn" id="sort-btn" title="Toggle message order">↑ Oldest first</button>
+                <button class="btn" id="export-btn" title="Export session as HTML" disabled>↓ Export</button>
+                <button class="btn" id="publish-btn" title="Publish session to GitHub Gist" disabled>↑ Publish</button>
                 <button class="btn" id="sync-btn" title="Sync now">↻ Sync</button>
                 <button class="btn" id="shortcuts-btn" title="Keyboard shortcuts">⌨ ?</button>
             </div>
@@ -623,10 +698,90 @@
                     <span class="shortcut-keys"><span class="key">R</span></span>
                 </li>
                 <li class="shortcut-item">
+                    <span class="shortcut-desc">Export session</span>
+                    <span class="shortcut-keys"><span class="key">E</span></span>
+                </li>
+                <li class="shortcut-item">
+                    <span class="shortcut-desc">Publish to Gist</span>
+                    <span class="shortcut-keys"><span class="key">P</span></span>
+                </li>
+                <li class="shortcut-item">
                     <span class="shortcut-desc">Show shortcuts</span>
                     <span class="shortcut-keys"><span class="key">?</span></span>
                 </li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Publish modal -->
+    <div class="modal-overlay" id="publish-modal">
+        <div class="modal">
+            <button class="modal-close" id="publish-modal-close">&times;</button>
+
+            <!-- Setup view (shown when no token) -->
+            <div id="publish-setup" class="modal-section">
+                <h2>Setup GitHub Publishing</h2>
+                <p class="modal-text">
+                    To publish sessions as GitHub Gists, you need a personal access token.
+                </p>
+                <ol class="modal-instructions">
+                    <li>Go to <a href="https://github.com/settings/tokens/new?scopes=gist&description=agent-session-viewer" target="_blank">GitHub Token Settings</a></li>
+                    <li>The "gist" scope should be pre-selected</li>
+                    <li>Click "Generate token" at the bottom</li>
+                    <li>Copy the token and paste it below</li>
+                </ol>
+                <div class="modal-input-group">
+                    <input type="password" id="github-token-input" class="modal-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+                </div>
+                <div id="token-error" class="modal-error"></div>
+                <div class="modal-actions">
+                    <button class="btn" id="cancel-setup-btn">Cancel</button>
+                    <button class="btn btn-primary" id="save-token-btn">Save Token</button>
+                </div>
+            </div>
+
+            <!-- Publishing view -->
+            <div id="publish-progress" class="modal-section">
+                <h2>Publishing...</h2>
+                <div class="modal-center">
+                    <span class="spinner"></span>
+                    <p>Creating GitHub Gist...</p>
+                </div>
+            </div>
+
+            <!-- Success view -->
+            <div id="publish-success" class="modal-section">
+                <h2>Published!</h2>
+                <p class="modal-text">Your session has been published to GitHub Gist.</p>
+                <div class="modal-input-group">
+                    <label class="modal-input-label">View URL (for sharing)</label>
+                    <div class="modal-input-row">
+                        <input type="text" id="view-url-input" class="modal-input" readonly>
+                        <button class="btn btn-primary" id="copy-view-url-btn">Copy</button>
+                    </div>
+                </div>
+                <div class="modal-input-group">
+                    <label class="modal-input-label">Gist URL</label>
+                    <div class="modal-input-row">
+                        <input type="text" id="gist-url-input" class="modal-input" readonly>
+                        <button class="btn" id="copy-gist-url-btn">Copy</button>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn" id="open-view-btn">Open in Browser</button>
+                    <button class="btn btn-primary" id="close-success-btn">Done</button>
+                </div>
+            </div>
+
+            <!-- Error view -->
+            <div id="publish-error" class="modal-section">
+                <h2>Publishing Failed</h2>
+                <p id="publish-error-message" class="modal-text-error"></p>
+                <div class="modal-actions">
+                    <button class="btn" id="close-error-btn">Close</button>
+                    <button class="btn btn-primary" id="retry-publish-btn">Retry</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -637,7 +792,7 @@
         let currentSession = null;
         let currentSessionData = null;
         let searchTimeout = null;
-        let sortNewestFirst = true;  // Default to newest first
+        let sortNewestFirst = false;  // Default to chronological order
         let showThinking = false;
         let selectedMessageIndex = -1;
         let statusPollInterval = null;
@@ -659,6 +814,29 @@
         const shortcutsBtn = document.getElementById('shortcuts-btn');
         const shortcutsModal = document.getElementById('shortcuts-modal');
         const modalClose = document.getElementById('modal-close');
+        const exportBtn = document.getElementById('export-btn');
+        const publishBtn = document.getElementById('publish-btn');
+
+        // Publish modal elements
+        const publishModal = document.getElementById('publish-modal');
+        const publishModalClose = document.getElementById('publish-modal-close');
+        const publishSetup = document.getElementById('publish-setup');
+        const publishProgress = document.getElementById('publish-progress');
+        const publishSuccess = document.getElementById('publish-success');
+        const publishError = document.getElementById('publish-error');
+        const githubTokenInput = document.getElementById('github-token-input');
+        const tokenError = document.getElementById('token-error');
+        const saveTokenBtn = document.getElementById('save-token-btn');
+        const cancelSetupBtn = document.getElementById('cancel-setup-btn');
+        const viewUrlInput = document.getElementById('view-url-input');
+        const gistUrlInput = document.getElementById('gist-url-input');
+        const copyViewUrlBtn = document.getElementById('copy-view-url-btn');
+        const copyGistUrlBtn = document.getElementById('copy-gist-url-btn');
+        const openViewBtn = document.getElementById('open-view-btn');
+        const closeSuccessBtn = document.getElementById('close-success-btn');
+        const closeErrorBtn = document.getElementById('close-error-btn');
+        const retryPublishBtn = document.getElementById('retry-publish-btn');
+        const publishErrorMessage = document.getElementById('publish-error-message');
         const statusText = document.getElementById('status-text');
         const syncStatusEl = document.getElementById('sync-status');
         const lastSyncEl = document.getElementById('last-sync');
@@ -715,6 +893,129 @@
                 syncBtn.disabled = false;
                 syncBtn.textContent = '↻ Sync';
             }
+        }
+
+        function exportSession() {
+            if (!currentSession) return;
+            // Trigger download by navigating to the export endpoint
+            window.location.href = `/api/sessions/${encodeURIComponent(currentSession.id)}/export`;
+        }
+
+        function updateExportButton() {
+            exportBtn.disabled = !currentSession;
+            publishBtn.disabled = !currentSession;
+        }
+
+        // Publish modal functions
+        function showPublishView(view) {
+            publishSetup.classList.remove('active');
+            publishProgress.classList.remove('active');
+            publishSuccess.classList.remove('active');
+            publishError.classList.remove('active');
+            view.classList.add('active');
+        }
+
+        function openPublishModal() {
+            publishModal.classList.add('visible');
+        }
+
+        function closePublishModal() {
+            publishModal.classList.remove('visible');
+            tokenError.style.display = 'none';
+            githubTokenInput.value = '';
+        }
+
+        async function checkGithubConfig() {
+            try {
+                const res = await fetch('/api/config/github');
+                const data = await res.json();
+                return data.configured;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        async function saveGithubToken() {
+            const token = githubTokenInput.value.trim();
+            if (!token) {
+                tokenError.textContent = 'Please enter a token';
+                tokenError.style.display = 'block';
+                return;
+            }
+
+            saveTokenBtn.disabled = true;
+            saveTokenBtn.textContent = 'Validating...';
+            tokenError.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/config/github', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token }),
+                });
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Invalid token');
+                }
+
+                const data = await res.json();
+                // Token saved, now publish
+                doPublish();
+            } catch (e) {
+                tokenError.textContent = e.message;
+                tokenError.style.display = 'block';
+            } finally {
+                saveTokenBtn.disabled = false;
+                saveTokenBtn.textContent = 'Save Token';
+            }
+        }
+
+        async function doPublish() {
+            if (!currentSession) return;
+
+            showPublishView(publishProgress);
+
+            try {
+                const res = await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/publish`, {
+                    method: 'POST',
+                });
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Publishing failed');
+                }
+
+                const data = await res.json();
+                viewUrlInput.value = data.view_url;
+                gistUrlInput.value = data.gist_url;
+                showPublishView(publishSuccess);
+            } catch (e) {
+                publishErrorMessage.textContent = e.message;
+                showPublishView(publishError);
+            }
+        }
+
+        async function publishSession() {
+            if (!currentSession) return;
+
+            openPublishModal();
+
+            // Check if token is configured
+            const configured = await checkGithubConfig();
+            if (configured) {
+                doPublish();
+            } else {
+                showPublishView(publishSetup);
+            }
+        }
+
+        function copyToClipboard(text, button) {
+            navigator.clipboard.writeText(text).then(() => {
+                const original = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => { button.textContent = original; }, 1500);
+            });
         }
 
         async function updateStatus() {
@@ -1016,6 +1317,7 @@
             currentSessionData = data;
             renderSession(data);
             renderSessionList(); // Update active state
+            updateExportButton(); // Enable export button
 
             // Connect SSE for live updates on this session
             connectSSE(id);
@@ -1148,6 +1450,7 @@
 
             currentSession = null;
             currentSessionData = null;
+            updateExportButton(); // Disable export button
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
@@ -1166,8 +1469,29 @@
         scrollTopBtn.addEventListener('click', () => {
             content.scrollTo({ top: 0 });
         });
+        exportBtn.addEventListener('click', exportSession);
+        publishBtn.addEventListener('click', publishSession);
         shortcutsBtn.addEventListener('click', openShortcutsModal);
         modalClose.addEventListener('click', closeShortcutsModal);
+
+        // Publish modal event handlers
+        publishModalClose.addEventListener('click', closePublishModal);
+        cancelSetupBtn.addEventListener('click', closePublishModal);
+        saveTokenBtn.addEventListener('click', saveGithubToken);
+        closeSuccessBtn.addEventListener('click', closePublishModal);
+        closeErrorBtn.addEventListener('click', closePublishModal);
+        retryPublishBtn.addEventListener('click', doPublish);
+        openViewBtn.addEventListener('click', () => window.open(viewUrlInput.value, '_blank'));
+        copyViewUrlBtn.addEventListener('click', () => copyToClipboard(viewUrlInput.value, copyViewUrlBtn));
+        copyGistUrlBtn.addEventListener('click', () => copyToClipboard(gistUrlInput.value, copyGistUrlBtn));
+
+        publishModal.addEventListener('click', (e) => {
+            if (e.target === publishModal) closePublishModal();
+        });
+
+        githubTokenInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') saveGithubToken();
+        });
 
         // Close modal on overlay click
         shortcutsModal.addEventListener('click', (e) => {
@@ -1178,15 +1502,22 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            const isModalOpen = shortcutsModal.classList.contains('visible');
-            const isInputFocused = document.activeElement === searchInput;
+            const isShortcutsModalOpen = shortcutsModal.classList.contains('visible');
+            const isPublishModalOpen = publishModal.classList.contains('visible');
+            const isModalOpen = isShortcutsModalOpen || isPublishModalOpen;
+            const activeEl = document.activeElement;
+            const isAnyInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+            const isSearchFocused = activeEl === searchInput;
 
             // Escape - close modal or clear search
             if (e.key === 'Escape') {
-                if (isModalOpen) {
+                if (isPublishModalOpen) {
+                    closePublishModal();
+                    e.preventDefault();
+                } else if (isShortcutsModalOpen) {
                     closeShortcutsModal();
                     e.preventDefault();
-                } else if (isInputFocused) {
+                } else if (isSearchFocused) {
                     searchInput.value = '';
                     searchInput.blur();
                     doSearch('');
@@ -1194,8 +1525,8 @@
                 return;
             }
 
-            // Don't process other shortcuts if modal is open or input is focused
-            if (isModalOpen) return;
+            // Don't process other shortcuts if modal is open or any input is focused
+            if (isModalOpen || isAnyInputFocused) return;
 
             // Cmd/Ctrl + K to focus search
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -1204,9 +1535,6 @@
                 searchInput.select();
                 return;
             }
-
-            // Skip if input is focused for remaining shortcuts
-            if (isInputFocused) return;
 
             // Message navigation
             if (e.key === 'ArrowDown' || e.key === 'j') {
@@ -1233,6 +1561,16 @@
             else if (e.key === 'r') {
                 e.preventDefault();
                 triggerSync();
+            }
+            // Export session
+            else if (e.key === 'e') {
+                e.preventDefault();
+                exportSession();
+            }
+            // Publish session
+            else if (e.key === 'p') {
+                e.preventDefault();
+                publishSession();
             }
             // Show shortcuts
             else if (e.key === '?') {
