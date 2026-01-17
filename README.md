@@ -15,6 +15,7 @@ AI coding sessions pile up fast. Finding that one conversation where you solved 
 - **Auto-sync** - Background sync every 15 minutes, plus manual sync with `r`
 - **Keyboard-first** - Vim-style navigation (j/k/[/]) for fast browsing
 - **Project organization** - Sessions grouped by codebase
+- **Export & publish** - Download sessions as HTML or publish to GitHub Gist for sharing
 - **Local-first** - All data stays on your machine in `~/.agent-session-viewer/`
 - **Zero config** - Works out of the box
 
@@ -53,8 +54,35 @@ Options:
 | `]` / `[` | Next / previous session |
 | `o` | Toggle message order |
 | `r` | Sync sessions |
+| `e` | Export session as HTML |
+| `p` | Publish session to Gist |
 | `⌘K` | Focus search |
 | `?` | Show all shortcuts |
+
+## Export & Publish
+
+### Export to HTML
+
+Press `e` or click "Export" to download the current session as a self-contained HTML file. The exported file:
+
+- Works offline in any browser
+- Includes CSS-only toggles for thinking blocks and sort order
+- Can be hosted on any static file server
+
+### Publish to GitHub Gist
+
+Press `p` or click "Publish" to share a session via GitHub Gist. First-time setup:
+
+1. Click "Publish" - a setup modal will appear
+2. Click the link to create a GitHub token (only needs `gist` scope)
+3. Paste the token and click "Save Token"
+
+After setup, publishing is one-click. You'll get:
+
+- **View URL** - A shareable link that renders the HTML (via htmlpreview.github.io)
+- **Gist URL** - Direct link to the gist on GitHub
+
+The token is stored locally in `~/.agent-session-viewer/config.json`.
 
 ## Supported Agents
 

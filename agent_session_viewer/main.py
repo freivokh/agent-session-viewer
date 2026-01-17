@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import sys
 import webbrowser
 from pathlib import Path
@@ -9,10 +10,13 @@ from datetime import datetime
 from typing import Optional
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
+import urllib.request
+import urllib.error
 
-from fastapi import FastAPI, Query, UploadFile, File, HTTPException
+from fastapi import FastAPI, Query, UploadFile, File, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from . import db
@@ -22,6 +26,76 @@ from . import sync as sync_module
 PACKAGE_DIR = Path(__file__).parent
 STATIC_DIR = PACKAGE_DIR / "static"
 DATA_DIR = Path.home() / ".agent-session-viewer"
+CONFIG_FILE = DATA_DIR / "config.json"
+
+
+def load_config() -> dict:
+    """Load configuration from config file."""
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text())
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_config(config: dict) -> None:
+    """Save configuration to config file."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(config, indent=2))
+
+
+def get_github_token() -> Optional[str]:
+    """Get GitHub token from config."""
+    config = load_config()
+    return config.get("github_token")
+
+
+def set_github_token(token: str) -> None:
+    """Set GitHub token in config."""
+    config = load_config()
+    config["github_token"] = token
+    save_config(config)
+
+
+def create_github_gist(content: str, filename: str, description: str, token: str) -> dict:
+    """Create a GitHub Gist and return the response."""
+    url = "https://api.github.com/gists"
+    data = json.dumps({
+        "description": description,
+        "public": True,
+        "files": {
+            filename: {"content": content}
+        }
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+            "User-Agent": "agent-session-viewer",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        raise HTTPException(
+            status_code=e.code,
+            detail=f"GitHub API error: {e.reason}. {error_body}"
+        )
+    except urllib.error.URLError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to connect to GitHub: {e.reason}")
+
+
+class TokenRequest(BaseModel):
+    token: str
 
 
 @dataclass
@@ -176,6 +250,459 @@ async def get_session(session_id: str):
     }
 
 
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str):
+    """Export session as a self-contained HTML file."""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = db.get_session_messages(session_id)
+    html = generate_export_html(session, messages)
+
+    # Create filename from project and date
+    project = session.get("project", "session").replace("/", "-").replace("\\", "-")
+    date_str = ""
+    if session.get("started_at"):
+        try:
+            dt = datetime.fromisoformat(session["started_at"].replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y%m%d")
+        except (ValueError, AttributeError):
+            pass
+    filename = f"{project}-{date_str or session_id[:8]}.html"
+
+    return Response(
+        content=html,
+        media_type="text/html",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+def escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    if not text:
+        return ""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def is_thinking_only(content: str) -> bool:
+    """Check if message contains only thinking blocks."""
+    if not content:
+        return False
+    import re
+    # Remove thinking blocks and check if anything meaningful remains
+    without_thinking = re.sub(r"\[Thinking\]\n?[\s\S]*?(?=\n\[|\n\n\[|$)", "", content).strip()
+    return without_thinking == ""
+
+
+def format_content_for_export(text: str) -> str:
+    """Format message content with markdown-ish formatting."""
+    import re
+    if not text:
+        return ""
+
+    html = escape_html(text)
+    # Code blocks
+    html = re.sub(r"```(\w*)\n([\s\S]*?)```", r"<pre><code>\2</code></pre>", html)
+    # Inline code
+    html = re.sub(r"`([^`]+)`", r"<code>\1</code>", html)
+    # Thinking blocks
+    html = re.sub(
+        r"\[Thinking\]\n?([\s\S]*?)(?=\n\[|\n\n\[|$)",
+        r'<div class="thinking-block"><div class="thinking-label">Thinking</div>\1</div>',
+        html,
+    )
+    # Tool blocks
+    html = re.sub(
+        r"\[(Tool|Read|Write|Edit|Bash|Glob|Grep|Task|Question|Todo List|Entering Plan Mode|Exiting Plan Mode)([^\]]*)\]([\s\S]*?)(?=\n\[|\n\n|<div|$)",
+        r'<div class="tool-block">[\1\2]\3</div>',
+        html,
+    )
+    return html
+
+
+def format_timestamp(ts: str) -> str:
+    """Format timestamp for display."""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, AttributeError):
+        return ts
+
+
+def generate_export_html(session: dict, messages: list) -> str:
+    """Generate a self-contained HTML export of a session."""
+
+    # Generate messages HTML (in chronological order - CSS handles sort toggle)
+    messages_html_parts = []
+    for i, m in enumerate(messages):
+        role = m.get("role", "unknown")
+        content = m.get("content", "")
+        timestamp = m.get("timestamp", "")
+        thinking_only_class = " thinking-only" if role == "assistant" and is_thinking_only(content) else ""
+
+        messages_html_parts.append(f'''
+            <div class="message {role}{thinking_only_class}" data-index="{i}">
+                <div class="message-header">
+                    <span class="message-role">{role}</span>
+                    <span class="message-time">{format_timestamp(timestamp)}</span>
+                </div>
+                <div class="message-content">{format_content_for_export(content)}</div>
+            </div>''')
+
+    messages_html = "\n".join(messages_html_parts)
+
+    # Session metadata
+    project = escape_html(session.get("project", "Unknown"))
+    agent = session.get("agent", "claude")
+    agent_display = "Claude" if agent == "claude" else "Codex" if agent == "codex" else agent
+    message_count = session.get("message_count", len(messages))
+    started_at = format_timestamp(session.get("started_at", ""))
+    first_message = escape_html(session.get("first_message", "")[:100])
+
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{project} - Agent Session</title>
+    <style>
+        :root {{
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface-hover: #21262d;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-muted: #388bfd;
+            --user-bg: #1c2128;
+            --assistant-bg: #1a1f26;
+            --success: #3fb950;
+            --warning: #d29922;
+            --tool-bg: #1a2332;
+            --thinking-bg: #1f1a24;
+            --agent-accent: #9d7cd8;
+        }}
+
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+        body {{
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }}
+
+        /* Header */
+        header {{
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }}
+
+        .header-content {{
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }}
+
+        .header-left {{
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }}
+
+        h1 {{
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text);
+        }}
+
+        .session-meta {{
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }}
+
+        .session-meta .agent-name {{
+            color: #d4a574;
+        }}
+
+        .session-meta .agent-name.codex {{
+            color: #7dd3fc;
+        }}
+
+        .controls {{
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }}
+
+        /* CSS-only toggle buttons using checkbox hack */
+        .toggle-input {{
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }}
+
+        .toggle-label {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--surface-hover);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.85rem;
+            user-select: none;
+            transition: background 0.15s, border-color 0.15s;
+        }}
+
+        .toggle-label:hover {{
+            background: var(--border);
+        }}
+
+        .toggle-input:checked + .toggle-label {{
+            background: var(--accent-muted);
+            border-color: var(--accent);
+        }}
+
+        .toggle-indicator {{
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: background 0.15s;
+        }}
+
+        .toggle-input:checked + .toggle-label .toggle-indicator {{
+            background: var(--text);
+        }}
+
+        /* Main content */
+        main {{
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 24px;
+        }}
+
+        .messages {{
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }}
+
+        .message {{
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }}
+
+        .message.user {{
+            background: var(--user-bg);
+            border-left: 3px solid var(--accent);
+        }}
+
+        .message.assistant {{
+            background: var(--assistant-bg);
+            border-left: 3px solid var(--agent-accent);
+        }}
+
+        .message-header {{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+        }}
+
+        .message-role {{
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+
+        .message.user .message-role {{ color: var(--accent); }}
+        .message.assistant .message-role {{ color: var(--agent-accent); }}
+
+        .message-time {{ color: var(--text-muted); }}
+
+        .message-content {{
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 0.9rem;
+        }}
+
+        .message-content code {{
+            background: var(--bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.85em;
+        }}
+
+        .message-content pre {{
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }}
+
+        .message-content pre code {{
+            background: none;
+            padding: 0;
+        }}
+
+        /* Thinking blocks - hidden by default */
+        .thinking-block {{
+            background: var(--thinking-bg);
+            border-left: 2px solid #8b5cf6;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-style: italic;
+            color: var(--text-muted);
+            display: none;
+        }}
+
+        .thinking-label {{
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #8b5cf6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            font-style: normal;
+        }}
+
+        /* Messages that only contain thinking content */
+        .message.thinking-only {{
+            display: none;
+        }}
+
+        /* When thinking toggle is checked, show thinking blocks */
+        #thinking-toggle:checked ~ main .thinking-block {{
+            display: block;
+        }}
+
+        #thinking-toggle:checked ~ main .message.thinking-only {{
+            display: block;
+        }}
+
+        .tool-block {{
+            background: var(--tool-bg);
+            border-left: 2px solid var(--warning);
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }}
+
+        /* Sort order toggle - reverse message order when checked */
+        #sort-toggle:checked ~ main .messages {{
+            flex-direction: column-reverse;
+        }}
+
+        /* Footer */
+        footer {{
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: center;
+        }}
+
+        footer a {{
+            color: var(--accent);
+            text-decoration: none;
+        }}
+
+        footer a:hover {{
+            text-decoration: underline;
+        }}
+
+        /* Responsive */
+        @media (max-width: 600px) {{
+            header {{
+                padding: 12px 16px;
+            }}
+            main {{
+                padding: 16px;
+            }}
+            .header-content {{
+                flex-direction: column;
+                align-items: flex-start;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <!-- CSS-only toggles using the checkbox hack -->
+    <input type="checkbox" id="thinking-toggle" class="toggle-input">
+    <input type="checkbox" id="sort-toggle" class="toggle-input">
+
+    <header>
+        <div class="header-content">
+            <div class="header-left">
+                <h1>{project}</h1>
+                <div class="session-meta">
+                    <span class="agent-name {agent}">{agent_display}</span>
+                    <span>{message_count} messages</span>
+                    <span>{started_at}</span>
+                </div>
+            </div>
+            <div class="controls">
+                <label for="thinking-toggle" class="toggle-label">
+                    <span class="toggle-indicator"></span>
+                    Thinking
+                </label>
+                <label for="sort-toggle" class="toggle-label">
+                    <span class="toggle-indicator"></span>
+                    Newest first
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="messages">
+{messages_html}
+        </div>
+    </main>
+
+    <footer>
+        Exported from <a href="https://github.com/wesm/agent-session-viewer">Agent Session Viewer</a>
+    </footer>
+</body>
+</html>'''
+
+    return html
+
+
 @app.get("/api/search")
 async def search(
     q: str = Query(..., min_length=1),
@@ -191,6 +718,93 @@ async def search(
 
     results = db.search_messages(fts_query, limit=limit, project=project)
     return {"query": q, "results": results, "count": len(results)}
+
+
+@app.get("/api/config/github")
+async def get_github_config():
+    """Check if GitHub token is configured."""
+    token = get_github_token()
+    return {"configured": bool(token)}
+
+
+@app.post("/api/config/github")
+async def set_github_config(request: TokenRequest):
+    """Set GitHub token."""
+    token = request.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token cannot be empty")
+
+    # Validate token by making a test request
+    test_url = "https://api.github.com/user"
+    req = urllib.request.Request(
+        test_url,
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "agent-session-viewer",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            user_data = json.loads(response.read().decode("utf-8"))
+            username = user_data.get("login", "unknown")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise HTTPException(status_code=401, detail="Invalid GitHub token")
+        raise HTTPException(status_code=e.code, detail=f"GitHub API error: {e.reason}")
+    except urllib.error.URLError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to connect to GitHub: {e.reason}")
+
+    set_github_token(token)
+    return {"success": True, "username": username}
+
+
+@app.post("/api/sessions/{session_id}/publish")
+async def publish_session(session_id: str):
+    """Publish session as a GitHub Gist."""
+    token = get_github_token()
+    if not token:
+        raise HTTPException(status_code=401, detail="GitHub token not configured")
+
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = db.get_session_messages(session_id)
+    html = generate_export_html(session, messages)
+
+    # Create filename and description
+    project = session.get("project", "session").replace("/", "-").replace("\\", "-")
+    date_str = ""
+    if session.get("started_at"):
+        try:
+            dt = datetime.fromisoformat(session["started_at"].replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y-%m-%d")
+        except (ValueError, AttributeError):
+            pass
+
+    filename = f"{project}-{date_str or session_id[:8]}.html"
+    first_msg = session.get("first_message", "")[:100]
+    description = f"Agent session: {project} - {first_msg}"
+
+    # Create the gist
+    gist_response = create_github_gist(html, filename, description, token)
+
+    gist_id = gist_response.get("id")
+    gist_url = gist_response.get("html_url")
+    owner = gist_response.get("owner", {}).get("login", "")
+
+    # Build the raw file URL for htmlpreview
+    raw_url = f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw/{filename}"
+    view_url = f"https://htmlpreview.github.io/?{raw_url}"
+
+    return {
+        "success": True,
+        "gist_id": gist_id,
+        "gist_url": gist_url,
+        "view_url": view_url,
+        "raw_url": raw_url,
+    }
 
 
 @app.get("/api/projects")
