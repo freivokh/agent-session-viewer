@@ -1505,7 +1505,9 @@
             const isShortcutsModalOpen = shortcutsModal.classList.contains('visible');
             const isPublishModalOpen = publishModal.classList.contains('visible');
             const isModalOpen = isShortcutsModalOpen || isPublishModalOpen;
-            const isInputFocused = document.activeElement === searchInput;
+            const activeEl = document.activeElement;
+            const isAnyInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+            const isSearchFocused = activeEl === searchInput;
 
             // Escape - close modal or clear search
             if (e.key === 'Escape') {
@@ -1515,7 +1517,7 @@
                 } else if (isShortcutsModalOpen) {
                     closeShortcutsModal();
                     e.preventDefault();
-                } else if (isInputFocused) {
+                } else if (isSearchFocused) {
                     searchInput.value = '';
                     searchInput.blur();
                     doSearch('');
@@ -1523,8 +1525,8 @@
                 return;
             }
 
-            // Don't process other shortcuts if modal is open or input is focused
-            if (isModalOpen) return;
+            // Don't process other shortcuts if modal is open or any input is focused
+            if (isModalOpen || isAnyInputFocused) return;
 
             // Cmd/Ctrl + K to focus search
             if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -1533,9 +1535,6 @@
                 searchInput.select();
                 return;
             }
-
-            // Skip if input is focused for remaining shortcuts
-            if (isInputFocused) return;
 
             // Message navigation
             if (e.key === 'ArrowDown' || e.key === 'j') {

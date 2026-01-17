@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
 import urllib.request
 import urllib.error
+import urllib.parse
 
 from fastapi import FastAPI, Query, UploadFile, File, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
@@ -40,9 +41,26 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """Save configuration to config file."""
+    """Save configuration to config file with secure permissions."""
+    import os
+    import stat
+
+    # Ensure directory exists with restricted permissions (0o700)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(config, indent=2))
+    try:
+        DATA_DIR.chmod(stat.S_IRWXU)  # 0o700 - owner only
+    except OSError:
+        pass  # May fail on some systems, but directory exists
+
+    # Write config with restricted permissions (0o600)
+    content = json.dumps(config, indent=2)
+    fd = os.open(CONFIG_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(content)
+    except Exception:
+        os.close(fd)
+        raise
 
 
 def get_github_token() -> Optional[str]:
@@ -269,7 +287,7 @@ async def export_session(session_id: str):
             date_str = dt.strftime("%Y%m%d")
         except (ValueError, AttributeError):
             pass
-    filename = f"{project}-{date_str or session_id[:8]}.html"
+    filename = sanitize_filename(f"{project}-{date_str or session_id[:8]}.html")
 
     return Response(
         content=html,
@@ -290,6 +308,33 @@ def escape_html(text: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename for Content-Disposition header.
+
+    Removes control characters, quotes, and other problematic chars.
+    """
+    import re
+    # Remove control characters (0x00-0x1F, 0x7F)
+    filename = re.sub(r'[\x00-\x1f\x7f]', '', filename)
+    # Remove/replace problematic characters for Content-Disposition
+    filename = filename.replace('"', "'").replace('\\', '_')
+    # Remove any remaining newlines/carriage returns (safety)
+    filename = filename.replace('\n', '').replace('\r', '')
+    return filename
+
+
+def sanitize_role(role: str) -> str:
+    """Whitelist role values for safe HTML insertion."""
+    allowed = {"user", "assistant"}
+    return role if role in allowed else "unknown"
+
+
+def sanitize_agent(agent: str) -> str:
+    """Whitelist agent values for safe HTML class names."""
+    allowed = {"claude", "codex"}
+    return agent if agent in allowed else "claude"
 
 
 def is_thinking_only(content: str) -> bool:
@@ -345,7 +390,7 @@ def generate_export_html(session: dict, messages: list) -> str:
     # Generate messages HTML (in chronological order - CSS handles sort toggle)
     messages_html_parts = []
     for i, m in enumerate(messages):
-        role = m.get("role", "unknown")
+        role = sanitize_role(m.get("role", "unknown"))
         content = m.get("content", "")
         timestamp = m.get("timestamp", "")
         thinking_only_class = " thinking-only" if role == "assistant" and is_thinking_only(content) else ""
@@ -353,7 +398,7 @@ def generate_export_html(session: dict, messages: list) -> str:
         messages_html_parts.append(f'''
             <div class="message {role}{thinking_only_class}" data-index="{i}">
                 <div class="message-header">
-                    <span class="message-role">{role}</span>
+                    <span class="message-role">{escape_html(role)}</span>
                     <span class="message-time">{format_timestamp(timestamp)}</span>
                 </div>
                 <div class="message-content">{format_content_for_export(content)}</div>
@@ -363,8 +408,8 @@ def generate_export_html(session: dict, messages: list) -> str:
 
     # Session metadata
     project = escape_html(session.get("project", "Unknown"))
-    agent = session.get("agent", "claude")
-    agent_display = "Claude" if agent == "claude" else "Codex" if agent == "codex" else agent
+    agent = sanitize_agent(session.get("agent", "claude"))
+    agent_display = "Claude" if agent == "claude" else "Codex" if agent == "codex" else "Claude"
     message_count = session.get("message_count", len(messages))
     started_at = format_timestamp(session.get("started_at", ""))
     first_message = escape_html(session.get("first_message", "")[:100])
@@ -794,8 +839,9 @@ async def publish_session(session_id: str):
     gist_url = gist_response.get("html_url")
     owner = gist_response.get("owner", {}).get("login", "")
 
-    # Build the raw file URL for htmlpreview
-    raw_url = f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw/{filename}"
+    # Build the raw file URL for htmlpreview (URL-encode filename for special chars)
+    encoded_filename = urllib.parse.quote(filename, safe="")
+    raw_url = f"https://gist.githubusercontent.com/{owner}/{gist_id}/raw/{encoded_filename}"
     view_url = f"https://htmlpreview.github.io/?{raw_url}"
 
     return {
