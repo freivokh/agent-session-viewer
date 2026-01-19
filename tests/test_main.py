@@ -98,6 +98,35 @@ class TestEscapeHtml:
         """Normal text should pass through."""
         assert escape_html("Hello world") == "Hello world"
 
+    def test_non_string_integer(self):
+        """Integer should be coerced to string."""
+        assert escape_html(42) == "42"
+        assert escape_html(0) == "0"
+
+    def test_non_string_list(self):
+        """List should be coerced to string."""
+        result = escape_html(["a", "b"])
+        assert isinstance(result, str)
+        assert result  # Not empty
+
+    def test_non_string_dict(self):
+        """Dict should be coerced to string."""
+        result = escape_html({"key": "value"})
+        assert isinstance(result, str)
+        assert result  # Not empty
+
+    def test_non_string_with_html_chars(self):
+        """Non-string values that produce HTML chars should be escaped."""
+        # Use a custom object whose __str__ returns HTML characters
+        class HtmlObject:
+            def __str__(self):
+                return "<tag>content</tag>"
+
+        result = escape_html(HtmlObject())
+        assert "&lt;tag&gt;" in result
+        assert "&lt;/tag&gt;" in result
+        assert "<tag>" not in result
+
 
 class TestGenerateExportHtml:
     """Tests for HTML export generation."""
@@ -143,3 +172,41 @@ class TestGenerateExportHtml:
         filename = sanitize_filename("my project#1.html")
         assert '"' not in filename
         assert '\n' not in filename
+
+    def test_non_string_role_does_not_crash(self):
+        """Non-string role values should not crash export."""
+        session = {"project": "test", "agent": "claude", "message_count": 1}
+        messages = [{"role": 123, "content": "test", "timestamp": ""}]
+
+        # Should not raise, should produce valid HTML
+        html = generate_export_html(session, messages)
+        assert "123" in html
+        assert isinstance(html, str)
+
+    def test_non_string_agent_does_not_crash(self):
+        """Non-string agent values should not crash export."""
+        session = {"project": "test", "agent": 456, "message_count": 1}
+        messages = []
+
+        # Should not raise, should produce valid HTML
+        html = generate_export_html(session, messages)
+        assert "456" in html
+        assert isinstance(html, str)
+
+    def test_none_role_does_not_crash(self):
+        """None role values should not crash export."""
+        session = {"project": "test", "agent": "claude", "message_count": 1}
+        messages = [{"role": None, "content": "test", "timestamp": ""}]
+
+        # Should not raise
+        html = generate_export_html(session, messages)
+        assert isinstance(html, str)
+
+    def test_missing_role_does_not_crash(self):
+        """Missing role key should not crash export."""
+        session = {"project": "test", "agent": "claude", "message_count": 1}
+        messages = [{"content": "test", "timestamp": ""}]
+
+        # Should not raise
+        html = generate_export_html(session, messages)
+        assert isinstance(html, str)

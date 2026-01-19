@@ -301,7 +301,14 @@ async def export_session(session_id: str):
 
 
 def escape_html(text: str) -> str:
-    """Escape HTML special characters."""
+    """Escape HTML special characters.
+
+    Handles non-string values gracefully by coercing to string.
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
     if not text:
         return ""
     return (
