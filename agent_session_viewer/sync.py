@@ -72,8 +72,10 @@ def get_project_name(dir_path: Path) -> str:
 
     # No marker found - take the last non-empty part as the project name
     # This handles cases like -Users-wesm -> wesm
+    # Skip both system directories and marker roots (code, projects, etc.)
+    skip_dirs = {"users", "home", "var", "tmp", "private", "code", "projects", "repos", "src", "work", "dev"}
     for part in reversed(parts):
-        if part and part.lower() not in ("users", "home", "var", "tmp", "private"):
+        if part and part.lower() not in skip_dirs:
             return part.replace("-", "_")
 
     # Ultimate fallback
@@ -209,11 +211,16 @@ def sync_session_file(
                 stored_project = stored_session.get("project", "") if stored_session else ""
 
                 # Detect bad project names that look like encoded paths
+                # Covers: _Users*, _home*, _private*, _tmp*, _var*
+                # and paths containing system directory segments
                 needs_reparse = (
                     stored_project.startswith("_Users") or
                     stored_project.startswith("_home") or
                     stored_project.startswith("_private") or
-                    "_var_folders_" in stored_project
+                    stored_project.startswith("_tmp") or
+                    stored_project.startswith("_var") or
+                    "_var_folders_" in stored_project or
+                    "_var_tmp_" in stored_project
                 )
 
                 if not needs_reparse:

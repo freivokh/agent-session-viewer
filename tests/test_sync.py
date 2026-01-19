@@ -395,3 +395,165 @@ class TestCwdExtraction:
     def test_extract_project_from_cwd_no_hyphens_passthrough(self):
         """Project names without hyphens should pass through."""
         assert extract_project_from_cwd("/Users/user/myproject") == "myproject"
+
+    def test_extract_project_from_cwd_non_string_types(self):
+        """Should return empty string for non-string types."""
+        assert extract_project_from_cwd(123) == ""
+        assert extract_project_from_cwd(["list"]) == ""
+        assert extract_project_from_cwd({"dict": "value"}) == ""
+
+    def test_extract_project_from_cwd_embedded_null(self):
+        """Should handle strings with embedded null safely."""
+        # Path() may raise or behave unexpectedly with embedded NUL
+        result = extract_project_from_cwd("/Users/user\x00/project")
+        # Just verify it doesn't crash - result may vary by platform
+        assert isinstance(result, str)
+
+
+class TestGetProjectNameFallback:
+    """Tests for get_project_name fallback behavior."""
+
+    def test_skips_marker_directories_in_fallback(self):
+        """Marker directories (code, projects, etc.) should be skipped in fallback."""
+        # When path ends with a marker directory, should step back
+        assert get_project_name(Path("-Users-wesm-code")) == "wesm"
+        assert get_project_name(Path("-Users-wesm-projects")) == "wesm"
+        assert get_project_name(Path("-Users-wesm-repos")) == "wesm"
+        assert get_project_name(Path("-Users-wesm-src")) == "wesm"
+        assert get_project_name(Path("-Users-wesm-work")) == "wesm"
+        assert get_project_name(Path("-Users-wesm-dev")) == "wesm"
+
+    def test_skips_system_directories_in_fallback(self):
+        """System directories should be skipped in fallback."""
+        assert get_project_name(Path("-Users-wesm-home")) == "wesm"
+        assert get_project_name(Path("-home-var-tmp")) != "tmp"
+
+
+class TestReparseBehavior:
+    """Tests for reparse detection of bad project names."""
+
+    def test_sync_reparses_users_prefix(self, tmp_path):
+        """Sessions with _Users* project names should be reparsed."""
+        from agent_session_viewer import db
+        from agent_session_viewer import sync as sync_module
+
+        # Create a session file with cwd
+        project_dir = tmp_path / "-Users-alice-code-my-app"
+        project_dir.mkdir()
+        session_file = project_dir / "test-session.jsonl"
+        session_file.write_text(
+            '{"type": "user", "cwd": "/Users/alice/code/my-app", "message": {"content": "hello"}, "timestamp": "2025-01-01T00:00:00Z"}\n'
+        )
+
+        # Mock db functions and CLAUDE_PROJECTS_DIR
+        with patch.object(sync_module, "CLAUDE_PROJECTS_DIR", tmp_path), \
+             patch.object(sync_module, "SESSIONS_DIR", tmp_path / "sessions"), \
+             patch.object(db, "get_session_file_info") as mock_file_info, \
+             patch.object(db, "get_session") as mock_get_session, \
+             patch.object(db, "upsert_session") as mock_upsert, \
+             patch.object(db, "delete_session_messages"), \
+             patch.object(db, "insert_messages_batch"):
+
+            # Simulate: file hash matches but stored project is bad
+            file_hash = sync_module.compute_file_hash(session_file)
+            mock_file_info.return_value = (session_file.stat().st_size, file_hash)
+            mock_get_session.return_value = {"project": "_Users_alice_code_my_app"}
+
+            result = sync_module.sync_session_file(
+                session_file, "_Users_alice_code_my_app", "local"
+            )
+
+            # Should have reparsed (not skipped) and updated with correct project name
+            assert result is not None
+            assert result.get("skipped") is False
+            assert result.get("project") == "my_app"
+
+            # Verify upsert was called with the correct project name
+            mock_upsert.assert_called_once()
+            call_kwargs = mock_upsert.call_args.kwargs
+            assert call_kwargs["project"] == "my_app"
+
+    def test_sync_reparses_tmp_prefix(self, tmp_path):
+        """Sessions with _tmp* project names should be reparsed."""
+        from agent_session_viewer import db
+        from agent_session_viewer import sync as sync_module
+
+        project_dir = tmp_path / "-tmp-my-app"
+        project_dir.mkdir()
+        session_file = project_dir / "test-session.jsonl"
+        session_file.write_text(
+            '{"type": "user", "cwd": "/tmp/my-app", "message": {"content": "hello"}, "timestamp": "2025-01-01T00:00:00Z"}\n'
+        )
+
+        with patch.object(sync_module, "CLAUDE_PROJECTS_DIR", tmp_path), \
+             patch.object(sync_module, "SESSIONS_DIR", tmp_path / "sessions"), \
+             patch.object(db, "get_session_file_info") as mock_file_info, \
+             patch.object(db, "get_session") as mock_get_session, \
+             patch.object(db, "upsert_session") as mock_upsert, \
+             patch.object(db, "delete_session_messages"), \
+             patch.object(db, "insert_messages_batch"):
+
+            file_hash = sync_module.compute_file_hash(session_file)
+            mock_file_info.return_value = (session_file.stat().st_size, file_hash)
+            mock_get_session.return_value = {"project": "_tmp_my_app"}
+
+            result = sync_module.sync_session_file(
+                session_file, "_tmp_my_app", "local"
+            )
+
+            assert result is not None
+            assert result.get("skipped") is False
+
+    def test_sync_reparses_var_prefix(self, tmp_path):
+        """Sessions with _var* project names should be reparsed."""
+        from agent_session_viewer import db
+        from agent_session_viewer import sync as sync_module
+
+        project_dir = tmp_path / "-var-tmp-my-app"
+        project_dir.mkdir()
+        session_file = project_dir / "test-session.jsonl"
+        session_file.write_text(
+            '{"type": "user", "cwd": "/var/tmp/my-app", "message": {"content": "hello"}, "timestamp": "2025-01-01T00:00:00Z"}\n'
+        )
+
+        with patch.object(sync_module, "CLAUDE_PROJECTS_DIR", tmp_path), \
+             patch.object(sync_module, "SESSIONS_DIR", tmp_path / "sessions"), \
+             patch.object(db, "get_session_file_info") as mock_file_info, \
+             patch.object(db, "get_session") as mock_get_session, \
+             patch.object(db, "upsert_session") as mock_upsert, \
+             patch.object(db, "delete_session_messages"), \
+             patch.object(db, "insert_messages_batch"):
+
+            file_hash = sync_module.compute_file_hash(session_file)
+            mock_file_info.return_value = (session_file.stat().st_size, file_hash)
+            mock_get_session.return_value = {"project": "_var_tmp_my_app"}
+
+            result = sync_module.sync_session_file(
+                session_file, "_var_tmp_my_app", "local"
+            )
+
+            assert result is not None
+            assert result.get("skipped") is False
+
+    def test_sync_skips_good_project_names(self, tmp_path):
+        """Sessions with good project names should be skipped if hash matches."""
+        from agent_session_viewer import db
+        from agent_session_viewer import sync as sync_module
+
+        project_dir = tmp_path / "my_app"
+        project_dir.mkdir()
+        session_file = project_dir / "test-session.jsonl"
+        session_file.write_text('{"type": "user", "message": {"content": "hello"}}\n')
+
+        with patch.object(sync_module, "CLAUDE_PROJECTS_DIR", tmp_path), \
+             patch.object(db, "get_session_file_info") as mock_file_info, \
+             patch.object(db, "get_session") as mock_get_session:
+
+            file_hash = sync_module.compute_file_hash(session_file)
+            mock_file_info.return_value = (session_file.stat().st_size, file_hash)
+            mock_get_session.return_value = {"project": "my_app"}
+
+            result = sync_module.sync_session_file(session_file, "my_app", "local")
+
+            assert result is not None
+            assert result.get("skipped") is True

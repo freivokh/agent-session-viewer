@@ -253,11 +253,17 @@ def extract_project_from_cwd(cwd: str) -> str:
     Works for both Claude Code and Codex sessions.
     Guards against unsafe path components like . and ..
     Normalizes the name (replaces - with _) for consistency.
+    Handles non-string or invalid cwd values gracefully.
     """
     if not cwd:
         return ""
-    path = Path(cwd)
-    name = path.name or ""
+    if not isinstance(cwd, str):
+        return ""
+    try:
+        path = Path(cwd)
+        name = path.name or ""
+    except (ValueError, TypeError):
+        return ""
 
     # Guard against unsafe path components
     if name in (".", "..", "") or "/" in name or "\\" in name:
