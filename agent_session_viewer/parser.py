@@ -18,6 +18,7 @@ class SessionMetadata:
     ended_at: Optional[str]
     message_count: int
     agent: str = "claude"  # "claude" or "codex"
+    custom_title: Optional[str] = None
 
 
 @dataclass
@@ -142,6 +143,7 @@ def parse_session(
     session_id = jsonl_path.stem
     messages = []
     first_message = None
+    custom_title = None
     started_at = None
     ended_at = None
     message_count = 0
@@ -173,6 +175,13 @@ def parse_session(
                     if started_at is None:
                         started_at = ts
                     ended_at = ts
+
+                # Capture custom title (from /rename command)
+                if entry.get("type") == "custom-title":
+                    title = entry.get("customTitle")
+                    if title:
+                        custom_title = title
+                    continue
 
                 # Process user messages
                 if entry.get("type") == "user":
@@ -217,6 +226,7 @@ def parse_session(
         started_at=started_at.isoformat() if started_at else None,
         ended_at=ended_at.isoformat() if ended_at else None,
         message_count=len(messages),
+        custom_title=custom_title,
     )
 
     return metadata, messages

@@ -22,6 +22,7 @@ class Session:
     ended_at: Optional[str]
     message_count: int
     created_at: str
+    custom_title: Optional[str] = None
 
 
 @dataclass
@@ -63,6 +64,7 @@ def init_db():
                 project TEXT NOT NULL,
                 machine TEXT DEFAULT 'local',
                 first_message TEXT,
+                custom_title TEXT,
                 started_at TEXT,
                 ended_at TEXT,
                 message_count INTEGER DEFAULT 0,
@@ -110,6 +112,12 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sessions_machine ON sessions(machine);
         """)
 
+        # Migration: add custom_title column if missing (for existing DBs)
+        try:
+            conn.execute("SELECT custom_title FROM sessions LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE sessions ADD COLUMN custom_title TEXT")
+
 
 def session_exists(session_id: str) -> bool:
     """Check if a session exists."""
@@ -140,6 +148,7 @@ def upsert_session(
     project: str,
     machine: str = "local",
     first_message: Optional[str] = None,
+    custom_title: Optional[str] = None,
     started_at: Optional[str] = None,
     ended_at: Optional[str] = None,
     message_count: int = 0,
@@ -150,19 +159,20 @@ def upsert_session(
     """Insert or update a session."""
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO sessions (id, project, machine, first_message, started_at, ended_at, message_count, file_size, file_hash, agent)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO sessions (id, project, machine, first_message, custom_title, started_at, ended_at, message_count, file_size, file_hash, agent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project = excluded.project,
                 machine = excluded.machine,
                 first_message = excluded.first_message,
+                custom_title = excluded.custom_title,
                 started_at = excluded.started_at,
                 ended_at = excluded.ended_at,
                 message_count = excluded.message_count,
                 file_size = excluded.file_size,
                 file_hash = excluded.file_hash,
                 agent = excluded.agent
-        """, (session_id, project, machine, first_message, started_at, ended_at, message_count, file_size, file_hash, agent))
+        """, (session_id, project, machine, first_message, custom_title, started_at, ended_at, message_count, file_size, file_hash, agent))
 
 
 def delete_session_messages(session_id: str):
