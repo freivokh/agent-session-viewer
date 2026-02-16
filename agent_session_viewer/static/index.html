@@ -69,7 +69,6 @@
 
         .search-box {
             flex: 1;
-            max-width: 500px;
             position: relative;
         }
 
@@ -188,6 +187,27 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+
+        .sidebar-filter {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-filter input {
+            width: 100%;
+            padding: 6px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 0.8rem;
+            font-family: inherit;
+        }
+
+        .sidebar-filter input:focus {
+            outline: none;
+            border-color: var(--accent);
         }
 
         .sidebar-header h2 {
@@ -426,6 +446,66 @@
             margin-bottom: 6px;
         }
 
+        .search-group {
+            margin-bottom: 20px;
+        }
+
+        .search-group-header {
+            padding: 8px 12px;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .search-group-header:hover { background: var(--surface); }
+
+        .search-group-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+
+        .search-group-meta {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-top: 2px;
+        }
+
+        .search-group-count {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .search-group .search-result {
+            border-radius: 0;
+            margin-bottom: 0;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            margin-left: 3px;
+            padding-left: 16px;
+            font-size: 0.85rem;
+        }
+
+        .search-group .search-result:last-child {
+            border-radius: 0 0 0 0;
+            margin-bottom: 8px;
+        }
+
         /* Status bar */
         .status-bar {
             position: fixed;
@@ -629,7 +709,7 @@
 </head>
 <body>
     <header>
-        <div class="container header-content">
+        <div class="header-content" style="padding:0 16px;">
             <h1>Agent Sessions</h1>
             <div class="search-box">
                 <span class="search-icon">🔍</span>
@@ -657,6 +737,9 @@
             <div class="sidebar-header">
                 <h2>Sessions</h2>
                 <span id="session-count" class="badge">0</span>
+            </div>
+            <div class="sidebar-filter">
+                <input type="text" id="session-filter" placeholder="Filter by title...">
             </div>
             <ul class="session-list" id="session-list">
                 <li class="loading"><span class="spinner"></span></li>
@@ -826,6 +909,7 @@
         const sessionCount = document.getElementById('session-count');
         const content = document.getElementById('content');
         const searchInput = document.getElementById('search-input');
+        const sessionFilterInput = document.getElementById('session-filter');
         const projectFilter = document.getElementById('project-filter');
         const syncBtn = document.getElementById('sync-btn');
         const sortBtn = document.getElementById('sort-btn');
@@ -1165,8 +1249,17 @@
 
         // Render functions
         function renderSessionList() {
-            sessionCount.textContent = sessions.length;
-            sessionList.innerHTML = sessions.map(s => `
+            const filter = (sessionFilterInput.value || '').toLowerCase().trim();
+            const filtered = filter
+                ? sessions.filter(s => {
+                    const title = (s.custom_title || s.first_message || '').toLowerCase();
+                    const id = (s.id || '').toLowerCase();
+                    return title.includes(filter) || id.includes(filter);
+                })
+                : sessions;
+
+            sessionCount.textContent = filtered.length;
+            sessionList.innerHTML = filtered.map(s => `
                 <li class="session-item ${currentSession?.id === s.id ? 'active' : ''}"
                     data-id="${s.id}">
                     <div class="session-project">${escapeHtml(s.project || '')}</div>
@@ -1188,6 +1281,11 @@
                 item.addEventListener('click', () => loadSession(item.dataset.id));
             });
         }
+
+        // Session title filter
+        sessionFilterInput.addEventListener('input', () => {
+            renderSessionList();
+        });
 
         function renderSession(data) {
             const { session, messages } = data;
@@ -1324,22 +1422,67 @@
                 return;
             }
 
+            // Group results by session_id, preserving order of first appearance
+            const groups = new Map();
+            for (const r of data.results) {
+                if (!groups.has(r.session_id)) {
+                    groups.set(r.session_id, []);
+                }
+                groups.get(r.session_id).push(r);
+            }
+
+            // Look up session metadata from sidebar data
+            const sessionMap = new Map(sessions.map(s => [s.id, s]));
+
+            let groupsHtml = '';
+            for (const [sessionId, results] of groups) {
+                const session = sessionMap.get(sessionId);
+                const title = session?.custom_title || session?.first_message || sessionId.substring(0, 8);
+                const project = session?.project || results[0].project || '';
+                const date = session?.started_at ? formatDate(session.started_at) : '';
+                const msgCount = results.length;
+
+                groupsHtml += `
+                    <div class="search-group">
+                        <div class="search-group-header" data-session="${sessionId}">
+                            <div style="min-width:0;">
+                                <div class="search-group-title">${escapeHtml(title)}</div>
+                                <div class="search-group-meta">
+                                    <span class="badge">${escapeHtml(project)}</span>
+                                    <span style="opacity:0.5;">·</span>
+                                    <span>${escapeHtml(sessionId.substring(0, 8))}</span>
+                                    ${date ? `<span style="opacity:0.5;">·</span><span>${date}</span>` : ''}
+                                </div>
+                            </div>
+                            <span class="search-group-count">${msgCount} match${msgCount !== 1 ? 'es' : ''}</span>
+                        </div>
+                        ${results.map(r => `
+                            <div class="search-result" data-session="${r.session_id}" data-msg="${r.msg_id}">
+                                <div class="search-result-meta">
+                                    <span>${r.role}</span>
+                                </div>
+                                <div>${r.snippet || escapeHtml(r.content.substring(0, 200))}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
             content.innerHTML = `
                 <div class="search-results">
-                    <h2>Search results for "${escapeHtml(data.query)}" (${data.count})</h2>
-                    ${data.results.map(r => `
-                        <div class="search-result" data-session="${r.session_id}" data-msg="${r.msg_id}">
-                            <div class="search-result-meta">
-                                <span class="badge">${r.project}</span>
-                                <span>${r.role}</span>
-                            </div>
-                            <div>${r.snippet || escapeHtml(r.content.substring(0, 200))}</div>
-                        </div>
-                    `).join('')}
+                    <h2>Search results for "${escapeHtml(data.query)}" (${data.count} in ${groups.size} session${groups.size !== 1 ? 's' : ''})</h2>
+                    ${groupsHtml}
                 </div>
             `;
 
-            // Add click handlers
+            // Click group header -> load session
+            content.querySelectorAll('.search-group-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    loadSession(header.dataset.session);
+                });
+            });
+
+            // Click result -> load session and jump to message
             content.querySelectorAll('.search-result').forEach(item => {
                 item.addEventListener('click', () => {
                     loadSession(item.dataset.session, item.dataset.msg);
