@@ -399,6 +399,14 @@
             display: block;
         }
 
+        .message.tool-only {
+            display: none;
+        }
+
+        body.show-tools .message.tool-only {
+            display: block;
+        }
+
         .thinking-label {
             font-size: 0.75rem;
             font-weight: 600;
@@ -722,6 +730,7 @@
             </div>
             <div class="header-actions">
                 <button class="btn" id="thinking-btn" title="Toggle thinking blocks" aria-pressed="false">○ Thinking</button>
+                <button class="btn" id="tools-btn" title="Toggle tool call messages" aria-pressed="true">◉ Tools</button>
                 <button class="btn" id="scroll-top-btn" title="Scroll to top">↑ Top</button>
                 <button class="btn" id="sort-btn" title="Toggle message order">↑ Oldest first</button>
                 <button class="btn" id="export-btn" title="Export session as HTML" disabled>↓ Export</button>
@@ -897,6 +906,7 @@
         let searchTimeout = null;
         let sortNewestFirst = false;  // Default to chronological order
         let showThinking = false;
+        let showTools = true;
         let selectedMessageIndex = -1;
         let statusPollInterval = null;
         let eventSource = null;  // SSE connection for live updates
@@ -914,6 +924,7 @@
         const syncBtn = document.getElementById('sync-btn');
         const sortBtn = document.getElementById('sort-btn');
         const thinkingBtn = document.getElementById('thinking-btn');
+        const toolsBtn = document.getElementById('tools-btn');
         const scrollTopBtn = document.getElementById('scroll-top-btn');
         const shortcutsBtn = document.getElementById('shortcuts-btn');
         const shortcutsModal = document.getElementById('shortcuts-modal');
@@ -1247,6 +1258,17 @@
             updateThinkingUI();
         }
 
+        function updateToolsUI() {
+            toolsBtn.textContent = showTools ? '◉ Tools' : '○ Tools';
+            toolsBtn.setAttribute('aria-pressed', showTools ? 'true' : 'false');
+            document.body.classList.toggle('show-tools', showTools);
+        }
+
+        function toggleTools() {
+            showTools = !showTools;
+            updateToolsUI();
+        }
+
         // Render functions
         function renderSessionList() {
             const filter = (sessionFilterInput.value || '').toLowerCase().trim();
@@ -1315,8 +1337,9 @@
                     <div class="messages" style="padding:16px 24px;">
                         ${sortedMessages.map((m, i) => {
                             const thinkingOnlyClass = m.role === 'assistant' && isThinkingOnly(m.content) ? ' thinking-only' : '';
+                            const toolOnlyClass = m.role === 'assistant' && isToolOnly(m.content) ? ' tool-only' : '';
                             return `
-                            <div class="message ${m.role}${thinkingOnlyClass}" id="${m.msg_id}" data-index="${i}">
+                            <div class="message ${m.role}${thinkingOnlyClass}${toolOnlyClass}" id="${m.msg_id}" data-index="${i}">
                                 <div class="message-header">
                                     <span class="message-role">${m.role}</span>
                                     <span class="message-time">${formatTime(m.timestamp)}</span>
@@ -1587,6 +1610,18 @@
             return withoutThinking === '';
         }
 
+        function isToolOnly(content) {
+            if (!content) return false;
+            // Check if message is only tool calls (lines starting with [Tool:, [Read:, [Write:, [Edit:, [Bash, [Grep:, [Glob:, [Task:, [Question:, [Todo, [Entering, [Exiting)
+            const lines = content.trim().split('\n');
+            const toolPattern = /^\[(Tool:|Read:|Write:|Edit:|Bash|Grep:|Glob:|Task:|Question:|Todo |Entering |Exiting )/;
+            const cmdPattern = /^\$ /;
+            return lines.every(line => {
+                const trimmed = line.trim();
+                return !trimmed || toolPattern.test(trimmed) || cmdPattern.test(trimmed);
+            });
+        }
+
         function formatContent(text) {
             if (!text) return '';
             // Basic markdown-ish formatting
@@ -1680,6 +1715,7 @@
         syncBtn.addEventListener('click', triggerSync);
         sortBtn.addEventListener('click', toggleSort);
         thinkingBtn.addEventListener('click', toggleThinking);
+        toolsBtn.addEventListener('click', toggleTools);
         scrollTopBtn.addEventListener('click', () => {
             content.scrollTo({ top: 0 });
         });
@@ -1796,6 +1832,7 @@
         // Initialize
         (async () => {
             updateThinkingUI();  // Sync UI with initial showThinking state
+            updateToolsUI();  // Sync UI with initial showTools state
             selectedProject = localStorage.getItem(PROJECT_FILTER_STORAGE_KEY) || 'all';
             await loadProjects();
             await loadSessions();
